@@ -2,6 +2,8 @@
 
 namespace App\Providers\Filament;
 
+use Filament\Enums\ThemeMode;
+use Filament\Enums\UserMenuPosition;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -9,7 +11,6 @@ use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
-use Filament\Support\Colors\Color;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -28,9 +29,24 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            ->brandName('RCPA')
+            ->brandLogo(asset('images/brand/rcpa-logo.png'))
+            ->darkModeBrandLogo(asset('images/brand/rcpa-logo-reversed.png'))
+            ->brandLogoHeight(fn (): string => request()->routeIs('filament.admin.auth.*')
+                ? '5rem'
+                : '3.5rem')
+            ->favicon(asset('images/brand/rcpa-logo.png'))
+            ->font('Poppins')
+            ->defaultThemeMode(ThemeMode::Light)
             ->colors([
-                'primary' => Color::Amber,
+                'primary' => '#002F67',
+                'warning' => '#FFD400',
+                'danger' => '#B3261E',
+                'success' => '#1E6E42',
+                'info' => '#2A5A96',
             ])
+            ->viteTheme('resources/css/filament/admin/theme.css')
+            ->userMenu(position: UserMenuPosition::Sidebar)
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([
