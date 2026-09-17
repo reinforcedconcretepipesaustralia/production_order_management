@@ -1,0 +1,107 @@
+@import '../../../../vendor/filament/filament/resources/css/theme.css';
+
+@source '../../../../app/Filament/**/*';
+@source '../../../../resources/views/filament/**/*';
+
+@theme {
+    --radius-lg: 0.5rem; /* 8px cards */
+    --radius-md: 0.25rem; /* 4px controls */
+    --radius-sm: 0.125rem;
+}
+
+.fi-body {
+    --rcpa-navy: #002f67;
+    --rcpa-yellow: #ffd400;
+}
+
+.fi-sidebar {
+    @apply bg-white dark:bg-gray-950;
+}
+
+.fi-sidebar-header {
+    border-bottom: 4px solid #ffd400;
+}
+
+.fi-topbar {
+    border-bottom: 1px solid #e3e4e3;
+    @apply py-1 sm:py-1;
+}
+
+.fi-topbar .fi-logo {
+    @apply my-0;
+}
+
+.fi-topbar-start {
+    @apply gap-x-2;
+}
+
+.fi-btn {
+    @apply rounded;
+}
+
+.fi-btn.fi-color-primary {
+    font-weight: 600;
+    background-color: #002f67;
+    color: #ffffff;
+}
+
+.fi-btn.fi-color-primary:hover {
+    background-color: #0a3d7c;
+    color: #ffffff;
+}
+
+.fi-simple-layout {
+    background-color: #f1f5fa;
+}
+
+.fi-simple-main {
+    @apply rounded-lg bg-white ring-0 dark:bg-gray-900;
+    border-top: 4px solid #ffd400;
+    color: #3a3c3e;
+    box-shadow: 0 1px 3px rgba(0, 47, 103, 0.1), 0 12px 32px rgba(0, 47, 103, 0.12);
+}
+
+.fi-simple-main .fi-logo {
+    @apply mb-8;
+}
+
+.fi-simple-header-heading {
+    color: #002f67;
+    letter-spacing: 0.02em;
+    line-height: 1.15;
+}
+
+.fi-simple-header-subheading {
+    color: #747678;
+}
+
+.fi-simple-main label {
+    color: #002f67;
+}
+
+.fi-simple-main a {
+    @apply font-medium;
+    color: #002f67;
+}
+
+.fi-fo-field-wrp-label {
+    color: #002f67;
+}
+
+.fi-ta-ctn,
+.fi-section {
+    @apply rounded-lg;
+    box-shadow: 0 1px 3px rgba(0, 47, 103, 0.1), 0 4px 16px rgba(0, 47, 103, 0.08);
+}
+
+.fi-input,
+.fi-select-input,
+.fi-textarea {
+    border-color: #bcbdbc;
+}
+
+.fi-input:focus,
+.fi-select-input:focus,
+.fi-textarea:focus {
+    --tw-ring-color: rgb(0 47 103 / 0.25);
+}
