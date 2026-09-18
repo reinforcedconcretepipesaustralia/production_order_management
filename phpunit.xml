@@ -32,5 +32,10 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="RCPA_SQL_HOST" value="RCP-AUS-SQL01"/>
+        <env name="RCPA_SQL_PORT" value="1433"/>
+        <env name="RCPA_SQL_DATABASE" value=""/>
+        <env name="RCPA_SQL_USERNAME" value=""/>
+        <env name="RCPA_SQL_PASSWORD" value=""/>
     </php>
 </phpunit>

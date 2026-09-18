@@ -11,8 +11,10 @@ use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
+use Filament\View\PanelsRenderHook;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
+use Illuminate\Contracts\View\View;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -47,6 +49,13 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->userMenu(position: UserMenuPosition::Sidebar)
+            // No topbar, so the navy sidebar runs the full height and carries the logo.
+            ->topbar(false)
+            ->sidebarCollapsibleOnDesktop()
+            ->renderHook(
+                PanelsRenderHook::USER_MENU_BEFORE,
+                fn (): View => view('filament.sidebar-toggle'),
+            )
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([

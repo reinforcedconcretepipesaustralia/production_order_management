@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\AppRole;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -40,6 +41,24 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    public function withAppRoles(AppRole ...$roles): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'app_roles' => array_map(
+                fn (AppRole $role): string => $role->value,
+                $roles,
+            ),
+        ]);
+    }
+
+    public function withEntraIdentity(string $objectId, string $tenantId): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'entra_object_id' => $objectId,
+            'entra_tenant_id' => $tenantId,
         ]);
     }
 }

@@ -12,31 +12,209 @@
 .fi-body {
     --rcpa-navy: #002f67;
     --rcpa-yellow: #ffd400;
+
+    /* Navy sidebar surface, used in both themes. */
+    --rcpa-sidebar-bg: #002f67;
+    --rcpa-sidebar-active-bg: #0a3d7c;
+    --rcpa-sidebar-hover-bg: rgba(255, 255, 255, 0.06);
+    --rcpa-sidebar-rule: rgba(228, 235, 244, 0.14);
+    --rcpa-sidebar-text: rgba(228, 235, 244, 0.82);
+    --rcpa-sidebar-muted: rgba(228, 235, 244, 0.55);
 }
 
 .fi-sidebar {
-    @apply bg-white dark:bg-gray-950;
+    background-color: var(--rcpa-sidebar-bg);
 }
 
+/* The sidebar is navy in light mode too, so it always carries the reversed mark. */
+.fi-sidebar .fi-logo-light {
+    display: none;
+}
+
+.fi-sidebar .fi-logo-dark {
+    display: flex;
+}
+
+/* The panel has no topbar, so this block is the top of the page at every width. */
 .fi-sidebar-header {
-    border-bottom: 4px solid #ffd400;
+    height: auto;
+    padding-block: 1.25rem;
+    background-color: var(--rcpa-sidebar-bg);
+    border-bottom: 1px solid var(--rcpa-sidebar-rule);
+    box-shadow: none;
 }
 
-.fi-topbar {
-    border-bottom: 1px solid #e3e4e3;
-    @apply py-1 sm:py-1;
+/* Collapsing is driven by the labelled control in the footer. */
+.fi-sidebar-open-collapse-sidebar-btn,
+.fi-sidebar-close-collapse-sidebar-btn {
+    display: none;
 }
 
-.fi-topbar .fi-logo {
-    @apply my-0;
+.fi-sidebar-nav {
+    padding-inline: 0.75rem;
+    padding-block: 1.5rem 1rem;
+    gap: 1rem;
+    scrollbar-color: rgba(228, 235, 244, 0.25) transparent;
 }
 
-.fi-topbar-start {
-    @apply gap-x-2;
+.fi-sidebar-nav-groups {
+    margin-inline: 0;
+    gap: 1rem;
+}
+
+.fi-sidebar-nav-groups > .fi-sidebar-group + .fi-sidebar-group {
+    border-top: 1px solid var(--rcpa-sidebar-rule);
+    padding-top: 1rem;
+}
+
+.fi-sidebar-group-btn {
+    padding: 0.25rem 0.75rem 0.375rem;
+}
+
+.fi-sidebar-group-label {
+    color: var(--rcpa-sidebar-muted);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.fi-sidebar-group-btn .fi-icon,
+.fi-sidebar-group-collapse-btn .fi-icon {
+    color: var(--rcpa-sidebar-muted);
+}
+
+.fi-sidebar-item-btn {
+    gap: 0.75rem;
+    border-radius: 0.25rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.fi-sidebar-item-btn > .fi-icon,
+.fi-sidebar-item-label {
+    color: var(--rcpa-sidebar-text);
+}
+
+.fi-sidebar-item-label {
+    font-weight: 500;
+}
+
+.fi-sidebar-item.fi-sidebar-item-has-url > .fi-sidebar-item-btn:hover,
+.fi-sidebar-item.fi-sidebar-item-has-url > .fi-sidebar-item-btn:focus-visible {
+    background-color: var(--rcpa-sidebar-hover-bg);
+}
+
+.fi-sidebar-item.fi-active > .fi-sidebar-item-btn {
+    background-color: var(--rcpa-sidebar-active-bg);
+}
+
+.fi-sidebar-item.fi-active > .fi-sidebar-item-btn > .fi-icon {
+    color: var(--rcpa-yellow);
+}
+
+.fi-sidebar-item.fi-active > .fi-sidebar-item-btn > .fi-sidebar-item-label {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* Counts read as figures against the navy, not as pills. */
+.fi-sidebar-item-badge-ctn .fi-badge {
+    min-width: 0;
+    padding-inline: 0;
+    background-color: transparent;
+    box-shadow: none;
+    color: var(--rcpa-sidebar-muted);
+    font-weight: 600;
+}
+
+.fi-sidebar-item-badge-ctn .fi-badge.fi-color-warning,
+.fi-sidebar-item-badge-ctn .fi-badge.fi-color-danger,
+.fi-sidebar-item.fi-active .fi-sidebar-item-badge-ctn .fi-badge {
+    color: var(--rcpa-yellow);
+}
+
+/* Footer stacks the collapse control above the user block, each on its own rule. */
+.fi-sidebar-footer {
+    margin-inline: 0.75rem;
+    margin-bottom: 0.5rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--rcpa-sidebar-rule);
+    padding-top: 0;
+}
+
+.rcpa-sidebar-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: 0.25rem;
+    padding: 0.625rem 0.75rem;
+    color: var(--rcpa-sidebar-muted);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    transition:
+        background-color 150ms ease,
+        color 150ms ease;
+}
+
+.rcpa-sidebar-toggle:hover,
+.rcpa-sidebar-toggle:focus-visible {
+    background-color: var(--rcpa-sidebar-hover-bg);
+    color: #ffffff;
+}
+
+.rcpa-sidebar-toggle .fi-icon {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+}
+
+.fi-sidebar:not(.fi-sidebar-open) .rcpa-sidebar-toggle {
+    justify-content: center;
+}
+
+.fi-sidebar:not(.fi-sidebar-open) .rcpa-sidebar-toggle .fi-icon {
+    transform: rotate(180deg);
+}
+
+.fi-sidebar-footer .fi-user-menu {
+    border-top: 1px solid var(--rcpa-sidebar-rule);
+    padding-top: 0.5rem;
+}
+
+.fi-sidebar .fi-user-menu-trigger {
+    border-radius: 0.25rem;
+    padding: 0.5rem;
+}
+
+.fi-sidebar .fi-user-menu-trigger:hover,
+.fi-sidebar .fi-user-menu-trigger:focus-visible {
+    background-color: var(--rcpa-sidebar-hover-bg);
+}
+
+.fi-sidebar .fi-user-menu-trigger-text {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.fi-sidebar .fi-user-menu-trigger .fi-icon {
+    color: var(--rcpa-sidebar-muted);
+}
+
+.fi-sidebar .fi-user-menu-trigger:hover .fi-icon {
+    color: #ffffff;
+}
+
+.fi-sidebar .fi-user-avatar {
+    box-shadow: 0 0 0 1px rgba(228, 235, 244, 0.25);
 }
 
 .fi-btn {
-    @apply rounded;
+    border-radius: 0.5rem; /* match `.fi-input-wrp` (`rounded-lg`) */
 }
 
 .fi-btn.fi-color-primary {
@@ -100,8 +278,12 @@
     border-color: #bcbdbc;
 }
 
-.fi-input:focus,
-.fi-select-input:focus,
-.fi-textarea:focus {
-    --tw-ring-color: rgb(0 47 103 / 0.25);
+/* Focus lives on `.fi-input-wrp`. `@layer utilities` so this beats Filament’s
+   generated `ring-primary-600` / fused-group 0px ring. */
+@layer utilities {
+    .fi-input-wrp:not(.fi-disabled):not(:has(.fi-ac-action:focus)):not(.fi-invalid):focus-within {
+        --tw-ring-color: #002f67;
+        --primary-600: #002f67;
+        box-shadow: 0 0 0 2px #002f67;
+    }
 }
