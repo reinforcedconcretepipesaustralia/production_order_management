@@ -2,7 +2,13 @@
     <x-filament::section>
         <x-slot name="heading">RCPA SQL views</x-slot>
         <x-slot name="description">
-            Read-only Eloquent access to RCP-AUS-SQL01. Store `RCPA_SQL_*` values only in local `.env`. If status is unreadable, join the corporate network or VPN and refresh.
+            Read-only Eloquent access to RCP-AUS-SQL01. Store `RCPA_SQL_*` values only in local `.env`. If status is unreadable, join the corporate network or VPN and retry.
+        </x-slot>
+
+        <x-slot name="headerEnd">
+            <x-filament::button wire:click="retryConnection" size="sm" color="gray" icon="heroicon-m-arrow-path">
+                Retry connection
+            </x-filament::button>
         </x-slot>
 
         <div class="overflow-x-auto">

@@ -133,7 +133,7 @@ return [
             'encrypt' => env('RCPA_SQL_ENCRYPT', 'yes'),
             'trust_server_certificate' => env('RCPA_SQL_TRUST_SERVER_CERTIFICATE', 'false'),
             'readonly' => true,
-            'login_timeout' => env('RCPA_SQL_LOGIN_TIMEOUT', 15),
+            'login_timeout' => env('RCPA_SQL_LOGIN_TIMEOUT', 5),
         ],
 
     ],

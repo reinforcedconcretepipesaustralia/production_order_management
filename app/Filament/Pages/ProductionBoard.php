@@ -85,16 +85,19 @@ class ProductionBoard extends Page
             ->orderBy('id')
             ->get();
 
+        $reader = new RcpaViewReadService(new RcpaViewCatalog);
+
         return [
             'depots' => $depots,
             'statuses' => $statuses,
             'days' => collect(range(0, $from->diffInDays($to)))
                 ->map(fn (int $offset): CarbonImmutable => $from->addDays($offset)),
             'lanes' => $this->buildLanes($schedules),
-            'erpProduction' => (new RcpaViewReadService(new RcpaViewCatalog))->productionDemand(
+            'erpProduction' => $reader->productionDemand(
                 $from->toDateString(),
                 $to->toDateString(),
             ),
+            'erpSkuMaster' => $reader->skuMaster(),
         ];
     }
 

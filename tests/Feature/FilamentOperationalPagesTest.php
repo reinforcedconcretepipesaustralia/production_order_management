@@ -67,14 +67,20 @@ class FilamentOperationalPagesTest extends TestCase
         $this->get(ProductionBoard::getUrl())
             ->assertOk()
             ->assertSee('ERP production demand')
+            ->assertSee('ERP SKU master')
             ->assertDontSee('RCPA_SQL_PASSWORD');
         $this->get(SteelRequisitionDashboard::getUrl())
             ->assertOk()
-            ->assertDontSee('Calculate forecasts');
+            ->assertSee('ERP stock on hand')
+            ->assertSee('ERP BOM lines')
+            ->assertDontSee('Calculate forecasts')
+            ->assertDontSee('RCPA_SQL_PASSWORD');
         $this->get(LogisticsLoadBuilder::getUrl())
             ->assertOk()
+            ->assertSee('ERP sales orders')
             ->assertDontSee('Create dispatch load')
-            ->assertDontSee('Add eligible allocation');
+            ->assertDontSee('Add eligible allocation')
+            ->assertDontSee('RCPA_SQL_PASSWORD');
     }
 
     public function test_production_board_scopes_data_and_applies_status_filter(): void

@@ -7,6 +7,8 @@ use App\Filament\Pages\ErpViews;
 use App\Models\User;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class ErpViewsPageTest extends TestCase
@@ -42,5 +44,18 @@ class ErpViewsPageTest extends TestCase
             ->assertSee('dbo.vwProduction')
             ->assertSee('dbo.vwSALES_ORDERS')
             ->assertDontSee('RCPA_SQL_PASSWORD');
+    }
+
+    public function test_retrying_the_connection_clears_the_cached_handshake_failure(): void
+    {
+        $user = User::factory()->withAppRoles(AppRole::PlannerAdmin)->create();
+        Cache::put('rcpa_sql.connection_failure_reason', 'SQL Server instance is unavailable.', 60);
+
+        Livewire::actingAs($user)
+            ->test(ErpViews::class)
+            ->call('retryConnection')
+            ->assertOk();
+
+        $this->assertNull(Cache::get('rcpa_sql.connection_failure_reason'));
     }
 }

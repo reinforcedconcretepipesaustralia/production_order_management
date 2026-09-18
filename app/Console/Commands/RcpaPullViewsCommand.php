@@ -25,6 +25,8 @@ class RcpaPullViewsCommand extends Command
             (string) config('database.connections.rcpa_sql.port'),
         ));
 
+        $reader->forgetConnectionFailure();
+
         $counts = $reader->countMappedViews();
         $unreadable = false;
 

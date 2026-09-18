@@ -7,9 +7,11 @@ use App\Filament\Concerns\HasOperationalDepotScope;
 use App\Models\Depot;
 use App\Models\ProductionSchedule;
 use App\Models\SteelForecast;
+use App\Services\Rcpa\RcpaViewReadService;
 use App\Services\Scheduling\SteelDemandLine;
 use App\Services\Scheduling\SteelPlanningService;
 use App\Services\Scheduling\SteelStockPosition;
+use App\Support\Rcpa\RcpaViewCatalog;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
@@ -81,11 +83,15 @@ class SteelRequisitionDashboard extends Page
             ->orderBy('wire_code')
             ->pluck('wire_code');
 
+        $reader = new RcpaViewReadService(new RcpaViewCatalog);
+
         return [
             'depots' => $depots,
             'wireCodes' => $wireCodes,
             'urgencies' => $urgencies,
             'rows' => $rows,
+            'erpStock' => $reader->stockOnHand(),
+            'erpBom' => $reader->bomLines(),
             'canCalculate' => $this->filteredDepots()->isNotEmpty()
                 && $this->filteredDepots()->every(
                     fn (Depot $depot): bool => $this->canManageDepot(Capability::ManageSteelPurchasing, $depot),

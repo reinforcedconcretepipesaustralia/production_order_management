@@ -18,6 +18,9 @@ final class RcpaSqlFailureClassifier
         $message = strtolower($exception->getMessage());
 
         return match (true) {
+            str_contains($message, 'permission was denied') ||
+                str_contains($message, 'permission denied') => 'The read-only login lacks SELECT permission on this view or its underlying tables. Ask the DBA to grant it.',
+            str_contains($message, 'invalid object name') => 'This view does not exist on the target database.',
             str_contains($message, 'certificate') ||
                 str_contains($message, 'ssl provider') => 'TLS certificate validation failed.',
             str_contains($message, 'login failed') => 'SQL Server rejected the login.',

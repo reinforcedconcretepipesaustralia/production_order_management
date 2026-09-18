@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\Rcpa\RcpaViewReadService;
 use App\Support\Rcpa\RcpaViewCatalog;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 
 class ErpViews extends Page
@@ -28,6 +29,20 @@ class ErpViews extends Page
         $user = Filament::auth()->user();
 
         return $user instanceof User && $user->hasCapability(Capability::ViewMasterData);
+    }
+
+    /**
+     * Drop the cached handshake failure so a fresh VPN session is picked up
+     * immediately rather than after the failure cache expires.
+     */
+    public function retryConnection(): void
+    {
+        (new RcpaViewReadService(new RcpaViewCatalog))->forgetConnectionFailure();
+
+        Notification::make()
+            ->title('Rechecking the RCPA SQL connection')
+            ->success()
+            ->send();
     }
 
     /**

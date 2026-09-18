@@ -107,4 +107,72 @@
             @endforeach
         </div>
     @endif
+
+    <x-filament::section>
+        <x-slot name="heading">ERP stock on hand</x-slot>
+        <x-slot name="description">
+            Read-only Eloquent rows from `dbo.vwSTOCK_ON_HAND`. Credentials stay in local `.env`.
+        </x-slot>
+
+        @if ($erpStock['status'] !== 'readable')
+            <p class="text-sm text-gray-600 dark:text-gray-300">{{ $erpStock['reason'] }} Join the corporate network or VPN and refresh to pull this view.</p>
+        @elseif ($erpStock['rows'] === [])
+            <p class="text-sm text-gray-500">No ERP stock-on-hand rows were returned.</p>
+        @else
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 text-gray-500 dark:border-white/10">
+                            <th class="py-2 pr-4 font-medium">Entity</th>
+                            <th class="py-2 pr-4 font-medium">On hand</th>
+                            <th class="py-2 pr-4 font-medium">Allocated</th>
+                            <th class="py-2 font-medium">Available</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($erpStock['rows'] as $row)
+                            <tr class="border-b border-gray-100 dark:border-white/5">
+                                <td class="py-2 pr-4 font-medium text-gray-900 dark:text-white">{{ $row['entity'] }}</td>
+                                <td class="py-2 pr-4 text-gray-600 dark:text-gray-300">{{ $row['qty_on_hand'] }}</td>
+                                <td class="py-2 pr-4 text-gray-600 dark:text-gray-300">{{ $row['qty_allocated'] }}</td>
+                                <td class="py-2 text-gray-600 dark:text-gray-300">{{ $row['qty_available'] }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+    </x-filament::section>
+
+    <x-filament::section>
+        <x-slot name="heading">ERP BOM lines</x-slot>
+        <x-slot name="description">
+            Read-only Eloquent rows from `dbo.vwBOM_LINES`. Credentials stay in local `.env`.
+        </x-slot>
+
+        @if ($erpBom['status'] !== 'readable')
+            <p class="text-sm text-gray-600 dark:text-gray-300">{{ $erpBom['reason'] }} Join the corporate network or VPN and refresh to pull this view.</p>
+        @elseif ($erpBom['rows'] === [])
+            <p class="text-sm text-gray-500">No ERP BOM lines were returned.</p>
+        @else
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 text-gray-500 dark:border-white/10">
+                            <th class="py-2 pr-4 font-medium">Entity</th>
+                            <th class="py-2 font-medium">Bill order qty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($erpBom['rows'] as $row)
+                            <tr class="border-b border-gray-100 dark:border-white/5">
+                                <td class="py-2 pr-4 font-medium text-gray-900 dark:text-white">{{ $row['entity'] }}</td>
+                                <td class="py-2 text-gray-600 dark:text-gray-300">{{ $row['bill_order_qty'] }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+    </x-filament::section>
 </x-filament-panels::page>

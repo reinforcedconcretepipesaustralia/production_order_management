@@ -39,6 +39,8 @@ class RcpaSqlStatusCommand extends Command
             return self::FAILURE;
         }
 
+        $reader->forgetConnectionFailure();
+
         try {
             Schema::connection('rcpa_sql')->getConnection()->getPdo();
         } catch (Throwable $exception) {
@@ -75,6 +77,10 @@ class RcpaSqlStatusCommand extends Command
 
             $hasUnreadableView = true;
             $this->line("[unreadable] {$view['table']}");
+
+            if ($view['reason'] !== null) {
+                $this->line("  Reason: {$view['reason']}");
+            }
         }
 
         return $hasUnreadableView ? self::FAILURE : self::SUCCESS;

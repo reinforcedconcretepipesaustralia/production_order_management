@@ -11,7 +11,9 @@ use App\Models\DispatchLoad;
 use App\Models\DispatchLoadItem;
 use App\Models\OrderAllocation;
 use App\Services\Dispatch\DispatchNotificationManager;
+use App\Services\Rcpa\RcpaViewReadService;
 use App\Services\Scheduling\LoadCapacityService;
+use App\Support\Rcpa\RcpaViewCatalog;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
@@ -262,6 +264,10 @@ class LogisticsLoadBuilder extends Page
             'canSendNotification' => $load !== null
                 && $this->canManageDepot(Capability::SendDispatchNotifications, $load->depot_id),
             'notificationAttempt' => $notificationAttempt,
+            'erpOrders' => (new RcpaViewReadService(new RcpaViewCatalog))->openSalesOrders(
+                now()->toDateString(),
+                now()->addDays(45)->toDateString(),
+            ),
         ];
     }
 
