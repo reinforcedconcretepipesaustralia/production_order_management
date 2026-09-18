@@ -98,4 +98,42 @@
             </div>
         @endif
     </x-filament::section>
+
+    <x-filament::section>
+        <x-slot name="heading">ERP production demand</x-slot>
+        <x-slot name="description">
+            Read-only Eloquent rows from `dbo.vwProduction` on RCP-AUS-SQL01. Credentials stay in local `.env`.
+        </x-slot>
+
+        @if ($erpProduction['status'] !== 'readable')
+            <p class="text-sm text-gray-600 dark:text-gray-300">{{ $erpProduction['reason'] }} Join the corporate network or VPN and refresh to pull this view.</p>
+        @elseif ($erpProduction['rows'] === [])
+            <p class="text-sm text-gray-500">No ERP production rows in this date range.</p>
+        @else
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200 text-gray-500 dark:border-white/10">
+                            <th class="py-2 pr-4 font-medium">Entity</th>
+                            <th class="py-2 pr-4 font-medium">Ordered</th>
+                            <th class="py-2 pr-4 font-medium">Required</th>
+                            <th class="py-2 pr-4 font-medium">Qty ordered</th>
+                            <th class="py-2 font-medium">Qty used</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($erpProduction['rows'] as $row)
+                            <tr class="border-b border-gray-100 dark:border-white/5">
+                                <td class="py-2 pr-4 font-medium text-gray-900 dark:text-white">{{ $row['entity'] }}</td>
+                                <td class="py-2 pr-4 text-gray-600 dark:text-gray-300">{{ $row['order_date'] }}</td>
+                                <td class="py-2 pr-4 text-gray-600 dark:text-gray-300">{{ $row['required_date'] }}</td>
+                                <td class="py-2 pr-4 text-gray-600 dark:text-gray-300">{{ $row['qty_ordered'] }}</td>
+                                <td class="py-2 text-gray-600 dark:text-gray-300">{{ $row['qty_used'] }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+    </x-filament::section>
 </x-filament-panels::page>

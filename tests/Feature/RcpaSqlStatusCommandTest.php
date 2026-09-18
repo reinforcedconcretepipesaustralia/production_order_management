@@ -32,6 +32,7 @@ class RcpaSqlStatusCommandTest extends TestCase
         ]);
 
         $this->artisan('rcpa:sql-status')
+            ->expectsOutputToContain('Target:')
             ->doesntExpectOutputToContain('should-never-appear')
             ->assertFailed();
     }

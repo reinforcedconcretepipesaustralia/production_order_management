@@ -6,8 +6,10 @@ use App\Enums\Capability;
 use App\Filament\Concerns\HasOperationalDepotScope;
 use App\Models\Depot;
 use App\Models\ProductionSchedule;
+use App\Services\Rcpa\RcpaViewReadService;
 use App\Services\Scheduling\MouldConstraintService;
 use App\Services\Scheduling\ShiftCapacityCalculator;
+use App\Support\Rcpa\RcpaViewCatalog;
 use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
@@ -89,6 +91,10 @@ class ProductionBoard extends Page
             'days' => collect(range(0, $from->diffInDays($to)))
                 ->map(fn (int $offset): CarbonImmutable => $from->addDays($offset)),
             'lanes' => $this->buildLanes($schedules),
+            'erpProduction' => (new RcpaViewReadService(new RcpaViewCatalog))->productionDemand(
+                $from->toDateString(),
+                $to->toDateString(),
+            ),
         ];
     }
 

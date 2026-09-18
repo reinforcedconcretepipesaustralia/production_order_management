@@ -64,7 +64,10 @@ class FilamentOperationalPagesTest extends TestCase
 
         $this->actingAs($executive);
 
-        $this->get(ProductionBoard::getUrl())->assertOk();
+        $this->get(ProductionBoard::getUrl())
+            ->assertOk()
+            ->assertSee('ERP production demand')
+            ->assertDontSee('RCPA_SQL_PASSWORD');
         $this->get(SteelRequisitionDashboard::getUrl())
             ->assertOk()
             ->assertDontSee('Calculate forecasts');
