@@ -18,6 +18,7 @@ class PlanGenerateCommand extends Command
         {--as-of= : Date to take the demand snapshot on. Defaults to the start of the horizon.}
         {--months-cover=1.0 : Months of stock held for a fast mover with no target of its own.}
         {--minimum-run=0.25 : Smallest share of a shift worth starting a new product for.}
+        {--max-runs=2 : Products a machine may be set up for in one shift.}
         {--orders-only : Plan order-backed work only, with no safety stock.}';
 
     protected $description = 'Generate a production plan across the plants';
@@ -46,6 +47,7 @@ class PlanGenerateCommand extends Command
             asOf: $this->option('as-of') === null ? null : CarbonImmutable::parse($this->option('as-of')),
             targetMonthsOnHand: (float) $this->option('months-cover'),
             minimumRunFraction: (float) $this->option('minimum-run'),
+            maxRunsPerShift: (int) $this->option('max-runs'),
             includeReplenishment: ! $this->option('orders-only'),
             generatedBy: null,
         ));

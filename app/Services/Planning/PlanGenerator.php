@@ -9,6 +9,7 @@ use App\Models\ProductionSchedule;
 use App\Services\Scheduling\CapacityResult;
 use App\Services\Scheduling\ShiftCapacityCalculator;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -105,7 +106,10 @@ final class PlanGenerator
         $queue = $outstanding[$slot->depot->id] ?? collect();
         $lines = 0;
 
-        while ($slot->hasCapacity()) {
+        // A machine can only be set up for so many products in one shift. Without this the
+        // planner fills the tail of a shift with a run of four pipes and then another of six,
+        // paying a change-over for each — which is not how any of the plants work.
+        while ($slot->hasCapacity() && $lines < $request->maxRunsPerShift) {
             $candidate = $this->pick($queue, $slot, $lastSkuByMachine[$slot->machine->id] ?? null);
 
             if ($candidate === null) {
@@ -132,8 +136,10 @@ final class PlanGenerator
             }
 
             $quantity = min($result->plannedPipes, max(1, $candidate->remaining));
-            $start = $this->startFor($slot, $alreadyUsed);
-            $end = $this->endFor($slot, $start, $fraction);
+            // Both ends are measured from the start of the shift, so one run finishes exactly
+            // where the next begins. Deriving the end from the start plus a rounded duration
+            // leaves a minute of overlap or gap between consecutive runs.
+            [$start, $end] = $this->windowFor($slot, $alreadyUsed, $fraction);
 
             ProductionSchedule::query()->create([
                 'plan_run_id' => $run->id,
@@ -277,16 +283,21 @@ final class PlanGenerator
         return bccomp($rounded, '0.0001', 4) < 0 ? '0.0001' : $rounded;
     }
 
-    private function startFor(CapacitySlot $slot, string $alreadyUsed): CarbonImmutable
+    /**
+     * The window a run occupies, measured in minutes from the start of the shift.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    private function windowFor(CapacitySlot $slot, string $alreadyUsed, string $fraction): array
     {
-        return $slot->date
-            ->setTimeFromTimeString((string) $slot->shift->starts_at)
-            ->addMinutes((int) round((float) $alreadyUsed * $slot->durationMinutes));
-    }
+        $shiftStart = $slot->date->setTimeFromTimeString((string) $slot->shift->starts_at);
+        $startMinutes = (int) round((float) $alreadyUsed * $slot->durationMinutes);
+        $endMinutes = (int) round((float) bcadd($alreadyUsed, $fraction, 4) * $slot->durationMinutes);
 
-    private function endFor(CapacitySlot $slot, CarbonImmutable $start, string $fraction): CarbonImmutable
-    {
-        return $start->addMinutes(max(1, (int) round((float) $fraction * $slot->durationMinutes)));
+        return [
+            $shiftStart->addMinutes($startMinutes),
+            $shiftStart->addMinutes(max($startMinutes + 1, $endMinutes)),
+        ];
     }
 
     private function oeePercentFor(CapacitySlot $slot): string
@@ -317,6 +328,21 @@ final class PlanGenerator
     }
 
     /**
+     * Restricts a schedule query to the plan horizon.
+     *
+     * schedule_date is cast to a date, which Eloquent persists with a midnight time, so a bare
+     * 'Y-m-d' upper bound sorts before every row on that day and silently drops the last day of
+     * the horizon. Left uncorrected, regenerating leaves the final day's lines behind and books
+     * the machines twice.
+     *
+     * @param  Builder<ProductionSchedule>  $query
+     */
+    private function withinHorizon(Builder $query, PlanRequest $request): void
+    {
+        $query->whereBetween('schedule_date', [$request->from->startOfDay(), $request->to->endOfDay()]);
+    }
+
+    /**
      * @return Collection<int, Depot>
      */
     private function depotsFor(PlanRequest $request): Collection
@@ -341,7 +367,7 @@ final class PlanGenerator
 
         ProductionSchedule::query()
             ->whereIn('depot_id', $depotIds)
-            ->whereBetween('schedule_date', [$request->from->toDateString(), $request->to->toDateString()])
+            ->tap(fn ($query) => $this->withinHorizon($query, $request))
             ->where('origin', ProductionSchedule::ORIGIN_SYSTEM)
             ->where('is_locked', false)
             ->delete();
@@ -387,7 +413,7 @@ final class PlanGenerator
         $retained = ProductionSchedule::query()
             ->with('sku')
             ->whereIn('depot_id', $depots->pluck('id'))
-            ->whereBetween('schedule_date', [$request->from->toDateString(), $request->to->toDateString()])
+            ->tap(fn ($query) => $this->withinHorizon($query, $request))
             ->get();
 
         foreach ($retained as $line) {
@@ -423,7 +449,7 @@ final class PlanGenerator
 
         $lines = ProductionSchedule::query()
             ->whereIn('depot_id', $depots->pluck('id'))
-            ->whereBetween('schedule_date', [$request->from->toDateString(), $request->to->toDateString()])
+            ->tap(fn ($query) => $this->withinHorizon($query, $request))
             ->get(['depot_id', 'machine_asset_id', 'shift_id', 'schedule_date', 'shift_fraction']);
 
         foreach ($lines as $line) {

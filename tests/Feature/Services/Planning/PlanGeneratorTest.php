@@ -212,6 +212,33 @@ class PlanGeneratorTest extends TestCase
         );
     }
 
+    /**
+     * schedule_date is stored with a midnight time, so a bare date as the upper bound of the
+     * horizon silently misses the last day. That left the previous run's final day in place and
+     * booked every machine twice for it.
+     */
+    public function test_regenerating_does_not_double_book_the_last_day_of_the_horizon(): void
+    {
+        $sku = $this->sku('R0300-4', ratePerHour: 30);
+        $this->order($sku, quantity: 10_000, due: '2026-09-30');
+
+        $this->generate();
+        $this->generate();
+
+        $lastDay = ProductionSchedule::query()
+            ->whereDate('schedule_date', $this->monday->addDays(4)->toDateString())
+            ->get();
+
+        $this->assertGreaterThan(0, $lastDay->count(), 'The last day should be planned at all.');
+        $this->assertSame(
+            $lastDay->count(),
+            $lastDay->unique(fn (ProductionSchedule $line): string => $line->machine_asset_id
+                .'|'.$line->shift_id
+                .'|'.$line->planned_start_at->toDateTimeString())->count(),
+            'The last day of the horizon must not be scheduled twice.',
+        );
+    }
+
     public function test_shutdowns_and_downtime_remove_capacity_from_the_plan(): void
     {
         $sku = $this->sku('R0300-4', ratePerHour: 30);
@@ -248,6 +275,77 @@ class PlanGeneratorTest extends TestCase
             ->where('category', DowntimeEvent::CATEGORY_CHANGEOVER)
             ->where('origin', ProductionSchedule::ORIGIN_SYSTEM)
             ->count());
+    }
+
+    /**
+     * A machine can only be set up for so many products in a shift. Without a cap the planner
+     * fills the tail of a shift with a run of four pipes and then another of six, paying a
+     * change-over for each.
+     */
+    public function test_a_shift_is_never_split_across_more_products_than_allowed(): void
+    {
+        // Six products, each with a tiny order, all runnable on the one machine.
+        foreach (range(1, 6) as $index) {
+            $sku = $this->sku("R0{$index}00-4", ratePerHour: 30);
+            $this->order($sku, quantity: 6, due: '2026-09-3'.min(9, $index));
+        }
+
+        $run = $this->generate();
+
+        $perShift = $run->schedules
+            ->groupBy(fn (ProductionSchedule $line): string => $line->machine_asset_id
+                .'|'.$line->shift_id
+                .'|'.$line->schedule_date->toDateString())
+            ->map(fn ($lines): int => $lines->count());
+
+        $this->assertTrue(
+            $perShift->every(fn (int $count): bool => $count <= 2),
+            'No shift should carry more than the two runs allowed by default.',
+        );
+    }
+
+    public function test_the_run_cap_is_adjustable(): void
+    {
+        foreach (range(1, 4) as $index) {
+            $sku = $this->sku("R0{$index}00-4", ratePerHour: 30);
+            $this->order($sku, quantity: 6, due: '2026-09-30');
+        }
+
+        $run = app(PlanGenerator::class)->generate(new PlanRequest(
+            from: $this->monday,
+            to: $this->monday,
+            maxRunsPerShift: 4,
+        ));
+
+        $this->assertSame(4, $run->schedules->count());
+        $this->assertSame(4, $run->parameters['max_runs_per_shift']);
+    }
+
+    public function test_consecutive_runs_meet_exactly_and_never_overlap(): void
+    {
+        $first = $this->sku('R0300-4', ratePerHour: 30);
+        $second = $this->sku('R0450-4', ratePerHour: 30);
+        // Odd quantities so the shift splits on a fraction that does not land on a whole minute.
+        $this->order($first, quantity: 37, due: '2026-09-08');
+        $this->order($second, quantity: 61, due: '2026-09-09');
+
+        $lines = $this->generate()->schedules->sortBy('planned_start_at')->values();
+
+        $this->assertGreaterThan(1, $lines->count());
+
+        for ($index = 1; $index < $lines->count(); $index++) {
+            $previous = $lines[$index - 1];
+            $current = $lines[$index];
+
+            if ($previous->machine_asset_id !== $current->machine_asset_id) {
+                continue;
+            }
+
+            $this->assertTrue(
+                $current->planned_start_at->greaterThanOrEqualTo($previous->planned_end_at),
+                "Run {$current->id} starts before run {$previous->id} finishes on the same machine.",
+            );
+        }
     }
 
     public function test_metrics_summarise_what_the_plan_does_and_what_it_misses(): void

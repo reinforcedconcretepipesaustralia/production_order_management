@@ -16,6 +16,9 @@ final readonly class PlanRequest
      *                                     of its own.
      * @param  float  $minimumRunFraction  The smallest slice of a shift worth starting a new
      *                                     product for, so a shift is not split into slivers.
+     * @param  int  $maxRunsPerShift  How many products a machine may be set up for in one shift.
+     *                                The workbooks run one or two; more than that is change-over
+     *                                churn, and the plants pay for every change-over in lost time.
      * @param  bool  $includeReplenishment  Off plans order-backed work only, which is what to use
      *                                      when the order book is long and nothing else matters.
      */
@@ -26,6 +29,7 @@ final readonly class PlanRequest
         public ?CarbonImmutable $asOf = null,
         public float $targetMonthsOnHand = DemandModel::DEFAULT_TARGET_MONTHS_ON_HAND,
         public float $minimumRunFraction = 0.25,
+        public int $maxRunsPerShift = 2,
         public bool $includeReplenishment = true,
         public ?int $generatedBy = null,
     ) {
@@ -39,6 +43,10 @@ final readonly class PlanRequest
 
         if ($this->targetMonthsOnHand < 0) {
             throw new InvalidArgumentException('Target months on hand cannot be negative.');
+        }
+
+        if ($this->maxRunsPerShift < 1) {
+            throw new InvalidArgumentException('A shift must allow at least one run.');
         }
     }
 
@@ -55,6 +63,7 @@ final readonly class PlanRequest
         return [
             'target_months_on_hand' => $this->targetMonthsOnHand,
             'minimum_run_fraction' => $this->minimumRunFraction,
+            'max_runs_per_shift' => $this->maxRunsPerShift,
             'include_replenishment' => $this->includeReplenishment,
         ];
     }
