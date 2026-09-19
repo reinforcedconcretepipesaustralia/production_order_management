@@ -178,8 +178,9 @@ class OperationalDataFoundationTest extends TestCase
             Depot::query()->where('code', 'KIL')->firstOrFail()
                 ->shifts()->where('is_active', true)->orderBy('code')->pluck('duration_minutes', 'code')->all(),
         );
+        // Monday to Friday only, at the 10 hr basis the workbooks actually plan on.
         $this->assertSame(
-            [1 => 600, 2 => 720, 3 => 720, 4 => 720, 5 => 600],
+            [1 => 600, 2 => 600, 3 => 600, 4 => 600, 5 => 600],
             Depot::query()->where('code', 'KIL')->firstOrFail()
                 ->shifts()->where('code', 'AFT')->firstOrFail()
                 ->patterns()->orderBy('weekday')->pluck('duration_minutes', 'weekday')->all(),

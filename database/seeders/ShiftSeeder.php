@@ -115,8 +115,18 @@ class ShiftSeeder extends Seeder
     }
 
     /**
-     * A 10 hr day shift, and an afternoon shift that runs 10 hr on Monday and Friday and
-     * 12 hr from Tuesday to Thursday.
+     * A 10 hr day shift and a 10 hr afternoon shift.
+     *
+     * The OEE Settings tab notes '(10hr shifts M and F and 12hr shifts Tu, W, Th)' beside the
+     * afternoon shift length, but that text sits in a comment cell no formula reads: the tab's
+     * effective hours are 9, derived from a 10 hr shift, and 'Prod Plan' column O plans every
+     * afternoon at 9 hours whatever the weekday.
+     *
+     * Seeding 12 hr midweek would make the app plan around 22% more afternoon capacity than the
+     * plants have ever planned, so the workbook's actual basis is used and the discrepancy is
+     * left as a question: if the 12 hr shifts are real, the workbook has been under-planning
+     * those days, and the midweek length should be raised to 720 in Plant Configuration →
+     * Shifts & hours as a deliberate change.
      *
      * @return list<array<string, mixed>>
      */
@@ -142,7 +152,7 @@ class ShiftSeeder extends Seeder
                 'name' => 'Afternoon Shift',
                 'starts_at' => '16:00:00',
                 'duration_minutes' => 600,
-                'patterns' => [1 => 600, 2 => 720, 3 => 720, 4 => 720, 5 => 600],
+                'patterns' => array_fill_keys(self::WEEKDAYS, 600),
             ] + $common,
         ];
     }

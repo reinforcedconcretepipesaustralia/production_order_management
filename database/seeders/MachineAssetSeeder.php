@@ -49,11 +49,13 @@ class MachineAssetSeeder extends Seeder
             'KIL' => [
                 ['code' => 'KIL-PM1', 'name' => 'Kilmore Pipe Machine', 'machine_type' => 'pipe_machine'],
             ],
+            // NSW runs Epak machines, not BiDi: its BOM tab heads the rate column
+            // 'Epak rated speed' where VIC and QLD read 'BiDi rated speed'.
             'SOM' => [
-                ['code' => 'SOM-PM1', 'name' => 'Somersby Pipe Machine', 'machine_type' => 'pipe_machine'],
+                ['code' => 'SOM-EPAK1', 'name' => 'Epak', 'machine_type' => 'epak'],
             ],
             'THO' => [
-                ['code' => 'THO-PM1', 'name' => 'Thornton Pipe Machine', 'machine_type' => 'pipe_machine'],
+                ['code' => 'THO-EPAK1', 'name' => 'Epak', 'machine_type' => 'epak'],
             ],
             'YAT' => [
                 ['code' => 'YAT-BIDI36', 'name' => 'BiDi 36', 'machine_type' => 'bidi'],

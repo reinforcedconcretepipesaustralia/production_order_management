@@ -52,12 +52,13 @@ class PlantReferenceDataSeedTest extends TestCase
             ->get()
             ->mapWithKeys(fn (Depot $depot): array => [$depot->code => $depot->machines->pluck('name')->sort()->values()->all()]);
 
-        // Melton and Yatala run both BiDi machines; the other three run a single machine each.
+        // Melton and Yatala run both BiDi machines; the NSW plants run Epak machines, which is
+        // why their BOM tab heads the rate column 'Epak rated speed'.
         $this->assertSame(['BiDi 36', 'BiDi 84'], $machines['MEL']);
         $this->assertSame(['BiDi 36', 'BiDi 84'], $machines['YAT']);
         $this->assertSame(['Kilmore Pipe Machine'], $machines['KIL']);
-        $this->assertSame(['Somersby Pipe Machine'], $machines['SOM']);
-        $this->assertSame(['Thornton Pipe Machine'], $machines['THO']);
+        $this->assertSame(['Epak'], $machines['SOM']);
+        $this->assertSame(['Epak'], $machines['THO']);
     }
 
     public function test_every_planning_enabled_plant_can_produce_capacity_slots(): void
@@ -206,7 +207,13 @@ class PlantReferenceDataSeedTest extends TestCase
         ];
     }
 
-    public function test_afternoon_shift_runs_longer_midweek(): void
+    /**
+     * The OEE Settings tab notes 12 hr afternoon shifts from Tuesday to Thursday, but that text
+     * is a comment no formula reads: effective hours are 9 from a 10 hr shift, and 'Prod Plan'
+     * column O plans every afternoon at 9 hours. Seeding 12 hr midweek would plan capacity the
+     * plants have never planned, so the workbook's basis is used until the business confirms.
+     */
+    public function test_afternoon_shift_matches_the_workbooks_ten_hour_basis(): void
     {
         $depot = Depot::query()->where('code', 'MEL')->sole();
         $shift = Shift::query()
@@ -215,13 +222,29 @@ class PlantReferenceDataSeedTest extends TestCase
             ->where('code', 'AFT')
             ->sole();
 
-        // 10 hr Monday and Friday, 12 hr Tuesday to Thursday, no weekend.
-        $this->assertSame(600, $shift->durationMinutesForWeekday(1));
-        $this->assertSame(720, $shift->durationMinutesForWeekday(2));
-        $this->assertSame(720, $shift->durationMinutesForWeekday(4));
-        $this->assertSame(600, $shift->durationMinutesForWeekday(5));
+        foreach ([1, 2, 3, 4, 5] as $weekday) {
+            $this->assertSame(600, $shift->durationMinutesForWeekday($weekday));
+        }
+
+        // No weekend, which is how Saturdays stay out of the plan.
         $this->assertNull($shift->durationMinutesForWeekday(6));
         $this->assertNull($shift->durationMinutesForWeekday(0));
+    }
+
+    /**
+     * The pattern mechanism still has to support a varying length, because Somersby and any
+     * future plant may well need one.
+     */
+    public function test_a_weekday_length_can_differ_from_the_default(): void
+    {
+        $shift = Shift::query()
+            ->where('depot_id', Depot::query()->where('code', 'MEL')->value('id'))
+            ->where('code', 'AFT')
+            ->sole();
+
+        $shift->patterns()->where('weekday', 3)->update(['duration_minutes' => 720]);
+
+        $this->assertSame(720, $shift->fresh()->load('patterns')->durationMinutesForWeekday(3));
     }
 
     public function test_capacity_for_a_seeded_plant_matches_the_workbook(): void

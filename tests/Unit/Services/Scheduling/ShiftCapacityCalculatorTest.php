@@ -207,8 +207,25 @@ class ShiftCapacityCalculatorTest extends TestCase
         return [
             'zero' => [0],
             'negative' => [-0.5],
-            'above one' => [1.5],
+            'beyond twice a shift' => [2.5],
         ];
+    }
+
+    /**
+     * The workbooks record over-full shifts — Yatala plans 1.11 on a day of overtime — so the
+     * model reproduces them rather than truncating to a full shift and under-planning the day.
+     */
+    public function test_accepts_an_over_full_shift_as_overtime(): void
+    {
+        $result = (new ShiftCapacityCalculator)->calculate(
+            $this->meltonDayshift(),
+            new SkuMaster(['standard_run_rate_per_hour' => '32.000']),
+            shiftFraction: 1.11,
+        );
+
+        $this->assertSame('1.1100', $result->shiftFraction);
+        // 5.4 effective hr x 32/hr x 1.11 = 191.8, rounded up.
+        $this->assertSame(192, $result->plannedPipes);
     }
 
     #[DataProvider('invalidPercentageAndRateValues')]

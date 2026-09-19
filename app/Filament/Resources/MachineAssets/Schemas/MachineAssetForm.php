@@ -11,10 +11,11 @@ class MachineAssetForm
 {
     /**
      * Machine types seen across the three state workbooks. 'bidi' covers the BiDi 36 and
-     * BiDi 84 at Melton and Yatala; the other plants run a single pipe machine.
+     * BiDi 84 at Melton and Yatala; NSW runs Epak machines; Kilmore runs a single pipe machine.
      */
     public const TYPES = [
         'bidi' => 'BiDi',
+        'epak' => 'Epak',
         'pipe_machine' => 'Pipe machine',
         'cage_machine' => 'Cage machine',
         'other' => 'Other',

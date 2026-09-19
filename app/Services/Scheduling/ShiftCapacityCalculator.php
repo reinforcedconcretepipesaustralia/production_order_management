@@ -119,12 +119,18 @@ final class ShiftCapacityCalculator
         return $normalized;
     }
 
+    /**
+     * A share above one is an over-full shift. The workbooks do record these — Yatala plans
+     * 1.11 on a day of overtime — so the model reproduces them rather than silently truncating
+     * to a full shift and under-planning the day. Twice a shift is the ceiling, beyond which the
+     * figure is almost certainly a mistake.
+     */
     private function normalizeFraction(int|float|string $value): string
     {
         $normalized = number_format((float) $value, 4, '.', '');
 
-        if (bccomp($normalized, '0', 4) <= 0 || bccomp($normalized, '1', 4) > 0) {
-            throw new InvalidArgumentException('Share of shift must be greater than zero and no more than one.');
+        if (bccomp($normalized, '0', 4) <= 0 || bccomp($normalized, '2', 4) > 0) {
+            throw new InvalidArgumentException('Share of shift must be greater than zero and no more than two.');
         }
 
         return $normalized;
