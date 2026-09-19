@@ -100,15 +100,15 @@ class PlantReferenceDataSeedTest extends TestCase
         $somersby = Depot::query()->where('code', 'SOM')->sole();
         $yatala = Depot::query()->where('code', 'YAT')->sole();
 
-        $this->assertSame('VIC', $melton->erp_entity_code);
+        $this->assertSame('RCPVIC', $melton->erp_entity_code);
         $this->assertSame(['VA', 'VB', 'VD'], $melton->erp_stock_categories);
         $this->assertSame(['MAIN', '31', '32', '35', '36'], $melton->prime_stock_locations);
         $this->assertSame(['33', '34', '37', '38'], $melton->rework_stock_locations);
 
-        $this->assertSame('NSW', $somersby->erp_entity_code);
+        $this->assertSame('RCPNSW', $somersby->erp_entity_code);
         $this->assertSame(['NA', 'NB', 'ND'], $somersby->erp_stock_categories);
 
-        $this->assertSame('QLD', $yatala->erp_entity_code);
+        $this->assertSame('RCPQLD', $yatala->erp_entity_code);
         $this->assertSame(['40'], $yatala->prime_stock_locations);
         $this->assertSame(['42'], $yatala->rework_stock_locations);
     }

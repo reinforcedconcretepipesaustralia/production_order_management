@@ -28,6 +28,7 @@ class ProductionSchedule extends Model
     ];
 
     protected $fillable = [
+        'plan_run_id',
         'depot_id', 'shift_id', 'machine_asset_id', 'sku_master_id', 'mould_asset_id',
         'schedule_date', 'planned_start_at', 'planned_end_at', 'planned_quantity',
         'planned_oee_percent', 'effective_hours', 'status', 'changeover_minutes',
@@ -65,6 +66,11 @@ class ProductionSchedule extends Model
     public function isReplaceableByPlanner(): bool
     {
         return $this->origin === self::ORIGIN_SYSTEM && ! $this->is_locked;
+    }
+
+    public function planRun(): BelongsTo
+    {
+        return $this->belongsTo(PlanRun::class);
     }
 
     public function depot(): BelongsTo
