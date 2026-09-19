@@ -36,4 +36,29 @@ class Shift extends Model
     {
         return $this->hasMany(ProductionSchedule::class);
     }
+
+    public function patterns(): HasMany
+    {
+        return $this->hasMany(DepotShiftPattern::class);
+    }
+
+    public function oeeSettings(): HasMany
+    {
+        return $this->hasMany(OeeSetting::class);
+    }
+
+    /**
+     * Shift length on a given weekday (0 = Sunday), falling back to duration_minutes when
+     * no pattern row exists. Returns null when the shift does not run that day.
+     */
+    public function durationMinutesForWeekday(int $weekday): ?int
+    {
+        $pattern = $this->patterns->firstWhere('weekday', $weekday);
+
+        if ($pattern === null) {
+            return $this->patterns->isEmpty() ? $this->duration_minutes : null;
+        }
+
+        return $pattern->is_active ? $pattern->duration_minutes : null;
+    }
 }

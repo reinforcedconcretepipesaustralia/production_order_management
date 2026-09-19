@@ -17,6 +17,10 @@ class DatabaseSeeder extends Seeder
         $this->call([
             DepotSeeder::class,
             ShiftSeeder::class,
+            MachineAssetSeeder::class,
+            OeeSettingSeeder::class,
+            DumpReasonSeeder::class,
+            DumpCauseSeeder::class,
         ]);
     }
 }

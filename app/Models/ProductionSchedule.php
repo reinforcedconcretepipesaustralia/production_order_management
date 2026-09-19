@@ -13,13 +13,26 @@ class ProductionSchedule extends Model
     /** @use HasFactory<ProductionScheduleFactory> */
     use HasFactory;
 
-    protected $attributes = ['planned_oee_percent' => 100, 'status' => 'draft', 'changeover_minutes' => 0];
+    public const ORIGIN_SYSTEM = 'system';
+
+    public const ORIGIN_MANUAL = 'manual';
+
+    protected $attributes = [
+        'planned_oee_percent' => 100,
+        'status' => 'draft',
+        'changeover_minutes' => 0,
+        'shift_fraction' => 1,
+        'origin' => self::ORIGIN_MANUAL,
+        'is_locked' => false,
+        'is_steamed' => false,
+    ];
 
     protected $fillable = [
         'depot_id', 'shift_id', 'machine_asset_id', 'sku_master_id', 'mould_asset_id',
         'schedule_date', 'planned_start_at', 'planned_end_at', 'planned_quantity',
         'planned_oee_percent', 'effective_hours', 'status', 'changeover_minutes',
-        'changeover_from_sku_code', 'changeover_notes',
+        'changeover_from_sku_code', 'changeover_notes', 'shift_fraction', 'origin',
+        'reason_code', 'reason_context', 'is_locked', 'priority', 'is_steamed',
     ];
 
     protected function casts(): array
@@ -30,7 +43,28 @@ class ProductionSchedule extends Model
             'planned_end_at' => 'datetime',
             'planned_oee_percent' => 'decimal:2',
             'effective_hours' => 'decimal:3',
+            'shift_fraction' => 'decimal:4',
+            'reason_context' => 'array',
+            'is_locked' => 'boolean',
+            'is_steamed' => 'boolean',
         ];
+    }
+
+    /**
+     * Planned tonnes for this line, the equivalent of Prod Plan column AB.
+     */
+    public function plannedTonnes(): float
+    {
+        return $this->planned_quantity * (float) $this->sku->unit_weight_tonnes;
+    }
+
+    /**
+     * A line the planner may replace on the next run: system-generated and not locked by a
+     * human. Manual lines and locked lines are always carried through untouched.
+     */
+    public function isReplaceableByPlanner(): bool
+    {
+        return $this->origin === self::ORIGIN_SYSTEM && ! $this->is_locked;
     }
 
     public function depot(): BelongsTo

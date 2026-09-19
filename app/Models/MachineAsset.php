@@ -29,4 +29,19 @@ class MachineAsset extends Model
     {
         return $this->hasMany(ProductionSchedule::class);
     }
+
+    public function runRates(): HasMany
+    {
+        return $this->hasMany(MachineSkuRunRate::class);
+    }
+
+    public function oeeSettings(): HasMany
+    {
+        return $this->hasMany(OeeSetting::class);
+    }
+
+    public function downtimeEvents(): HasMany
+    {
+        return $this->hasMany(DowntimeEvent::class);
+    }
 }

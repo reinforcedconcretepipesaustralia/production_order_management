@@ -160,23 +160,31 @@ class OperationalDataFoundationTest extends TestCase
     {
         $this->seed(DatabaseSeeder::class);
 
-        $this->assertSame(['KIL', 'MEL'], Depot::query()->orderBy('code')->pluck('code')->all());
-        $this->assertSame(12, Shift::query()->count());
+        // All five pipe plants across VIC, NSW and QLD.
+        $this->assertSame(['KIL', 'MEL', 'SOM', 'THO', 'YAT'], Depot::query()->orderBy('code')->pluck('code')->all());
+
+        // Day and afternoon at Melton, Kilmore, Yatala and Somersby; Thornton runs one shift.
+        $this->assertSame(9, Shift::query()->where('is_active', true)->count());
         $this->assertSame(
-            ['AFT-FRI', 'AFT-MON', 'AFT-THU', 'AFT-TUE', 'AFT-WED', 'DAY'],
-            Depot::query()->where('code', 'MEL')->firstOrFail()->shifts()->orderBy('code')->pluck('code')->all(),
+            ['AFT', 'DAY'],
+            Depot::query()->where('code', 'MEL')->firstOrFail()
+                ->shifts()->where('is_active', true)->orderBy('code')->pluck('code')->all(),
+        );
+
+        // Varying shift lengths now live in depot_shift_patterns rather than in one shift
+        // record per weekday, so the afternoon shift carries its default length only.
+        $this->assertSame(
+            ['AFT' => 600, 'DAY' => 600],
+            Depot::query()->where('code', 'KIL')->firstOrFail()
+                ->shifts()->where('is_active', true)->orderBy('code')->pluck('duration_minutes', 'code')->all(),
         );
         $this->assertSame(
-            [
-                'AFT-FRI' => 600,
-                'AFT-MON' => 600,
-                'AFT-THU' => 720,
-                'AFT-TUE' => 720,
-                'AFT-WED' => 720,
-                'DAY' => 600,
-            ],
-            Depot::query()->where('code', 'KIL')->firstOrFail()->shifts()->orderBy('code')->pluck('duration_minutes', 'code')->all(),
+            [1 => 600, 2 => 720, 3 => 720, 4 => 720, 5 => 600],
+            Depot::query()->where('code', 'KIL')->firstOrFail()
+                ->shifts()->where('code', 'AFT')->firstOrFail()
+                ->patterns()->orderBy('weekday')->pluck('duration_minutes', 'weekday')->all(),
         );
+
         $this->assertSame(0, SalesOrder::query()->count());
         $this->assertSame(0, ProductionSchedule::query()->count());
     }

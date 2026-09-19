@@ -17,7 +17,8 @@ class SkuMaster extends Model
     protected $fillable = [
         'sku_code', 'description', 'diameter_mm', 'length_mm', 'unit_weight_tonnes',
         'wire_code', 'wire_kg_per_pipe', 'concrete_volume_m3', 'standard_run_rate_per_hour',
-        'bom_reference', 'is_active',
+        'bom_reference', 'is_active', 'machine_preference', 'abc_class',
+        'minimum_run_quantity', 'target_months_on_hand',
     ];
 
     protected function casts(): array
@@ -27,6 +28,7 @@ class SkuMaster extends Model
             'wire_kg_per_pipe' => 'decimal:3',
             'concrete_volume_m3' => 'decimal:4',
             'standard_run_rate_per_hour' => 'decimal:3',
+            'target_months_on_hand' => 'decimal:2',
             'is_active' => 'boolean',
         ];
     }
@@ -44,5 +46,24 @@ class SkuMaster extends Model
     public function salesOrders(): HasMany
     {
         return $this->hasMany(SalesOrder::class);
+    }
+
+    public function wireRequirements(): HasMany
+    {
+        return $this->hasMany(SkuWireRequirement::class);
+    }
+
+    public function machineRunRates(): HasMany
+    {
+        return $this->hasMany(MachineSkuRunRate::class);
+    }
+
+    /**
+     * 'A' SKUs make up the top 80% of R3M eaches and are made to stock; everything else
+     * is made to order. Set by the demand model, not by hand.
+     */
+    public function isMakeToStock(): bool
+    {
+        return $this->abc_class === 'A';
     }
 }
