@@ -32,10 +32,8 @@ class DepotSeeder extends Seeder
     private function depots(): array
     {
         return [
-            // Melton and Kilmore share one Victorian yard, so stock cannot be attributed to
-            // a plant by location. The producing plant comes from the BOM 'Machine' column;
-            // the workbook's fallback rule routes 225-375 mm and 600 mm to Kilmore and
-            // everything else to Melton.
+            // Victorian stock locations are plant-specific, despite what the state workbook
+            // implies: the national extract names 31 'Melton Pipes' and 32 'Kilmore Pipes'.
             [
                 'code' => 'MEL',
                 'name' => 'Melton',
@@ -43,8 +41,9 @@ class DepotSeeder extends Seeder
                 'timezone' => 'Australia/Melbourne',
                 'erp_entity_code' => 'RCPVIC',
                 'erp_stock_categories' => ['VA', 'VB', 'VD'],
-                'prime_stock_locations' => ['MAIN', '31', '32', '35', '36'],
-                'rework_stock_locations' => ['33', '34', '37', '38'],
+                'prime_stock_locations' => ['31'],
+                'rework_stock_locations' => ['33', '37'],
+                'quarantine_stock_locations' => [],
                 'is_active' => true,
                 'is_planning_enabled' => true,
             ],
@@ -55,14 +54,15 @@ class DepotSeeder extends Seeder
                 'timezone' => 'Australia/Melbourne',
                 'erp_entity_code' => 'RCPVIC',
                 'erp_stock_categories' => ['VA', 'VB', 'VD'],
-                'prime_stock_locations' => ['MAIN', '31', '32', '35', '36'],
-                'rework_stock_locations' => ['33', '34', '37', '38'],
+                'prime_stock_locations' => ['32'],
+                'rework_stock_locations' => ['34'],
+                'quarantine_stock_locations' => [],
                 'is_active' => true,
                 'is_planning_enabled' => true,
             ],
-            // NSW runs two plants with their own yards: MAIN is Somersby, 22 is Thornton.
-            // Ownership of TS, QS and QT is not stated in the workbook and needs confirming
-            // with the NSW team before stock in them is attributed to a plant.
+            // The national extract names every NSW location, which settles who owns what:
+            // MAIN is Somersby, 22 and TS are Thornton, and QS and QT are each plant's
+            // quarantine rather than rework.
             [
                 'code' => 'SOM',
                 'name' => 'Somersby',
@@ -71,7 +71,8 @@ class DepotSeeder extends Seeder
                 'erp_entity_code' => 'RCPNSW',
                 'erp_stock_categories' => ['NA', 'NB', 'ND'],
                 'prime_stock_locations' => ['MAIN'],
-                'rework_stock_locations' => ['QS'],
+                'rework_stock_locations' => [],
+                'quarantine_stock_locations' => ['QS'],
                 'is_active' => true,
                 'is_planning_enabled' => true,
             ],
@@ -82,8 +83,9 @@ class DepotSeeder extends Seeder
                 'timezone' => 'Australia/Sydney',
                 'erp_entity_code' => 'RCPNSW',
                 'erp_stock_categories' => ['NA', 'NB', 'ND'],
-                'prime_stock_locations' => ['22'],
-                'rework_stock_locations' => ['QT'],
+                'prime_stock_locations' => ['22', 'TS'],
+                'rework_stock_locations' => [],
+                'quarantine_stock_locations' => ['QT'],
                 'is_active' => true,
                 'is_planning_enabled' => true,
             ],
@@ -96,6 +98,7 @@ class DepotSeeder extends Seeder
                 'erp_stock_categories' => ['YA', 'YB', 'YK', 'NK'],
                 'prime_stock_locations' => ['40'],
                 'rework_stock_locations' => ['42'],
+                'quarantine_stock_locations' => ['43'],
                 'is_active' => true,
                 'is_planning_enabled' => true,
             ],

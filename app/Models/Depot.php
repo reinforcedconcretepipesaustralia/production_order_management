@@ -15,7 +15,7 @@ class Depot extends Model
     protected $fillable = [
         'code', 'name', 'state', 'timezone', 'is_active',
         'erp_entity_code', 'erp_stock_categories', 'prime_stock_locations',
-        'rework_stock_locations', 'is_planning_enabled',
+        'rework_stock_locations', 'quarantine_stock_locations', 'is_planning_enabled',
     ];
 
     protected function casts(): array
@@ -26,7 +26,21 @@ class Depot extends Model
             'erp_stock_categories' => 'array',
             'prime_stock_locations' => 'array',
             'rework_stock_locations' => 'array',
+            'quarantine_stock_locations' => 'array',
         ];
+    }
+
+    /**
+     * How a stock location at this plant should be counted, or null when it is not this plant's.
+     */
+    public function stockKindFor(string $location): ?string
+    {
+        return match (true) {
+            in_array($location, $this->prime_stock_locations ?? [], true) => 'prime',
+            in_array($location, $this->rework_stock_locations ?? [], true) => 'rework',
+            in_array($location, $this->quarantine_stock_locations ?? [], true) => 'quarantine',
+            default => null,
+        };
     }
 
     public function shifts(): HasMany

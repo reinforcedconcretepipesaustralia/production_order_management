@@ -100,17 +100,31 @@ class PlantReferenceDataSeedTest extends TestCase
         $somersby = Depot::query()->where('code', 'SOM')->sole();
         $yatala = Depot::query()->where('code', 'YAT')->sole();
 
+        // Victorian locations are plant-specific: the national extract names 31 'Melton Pipes'
+        // and 32 'Kilmore Pipes', so stock there is not the shared yard the state workbook implies.
+        $kilmore = Depot::query()->where('code', 'KIL')->sole();
+
         $this->assertSame('RCPVIC', $melton->erp_entity_code);
         $this->assertSame(['VA', 'VB', 'VD'], $melton->erp_stock_categories);
-        $this->assertSame(['MAIN', '31', '32', '35', '36'], $melton->prime_stock_locations);
-        $this->assertSame(['33', '34', '37', '38'], $melton->rework_stock_locations);
+        $this->assertSame(['31'], $melton->prime_stock_locations);
+        $this->assertSame(['33', '37'], $melton->rework_stock_locations);
+        $this->assertSame(['32'], $kilmore->prime_stock_locations);
+        $this->assertSame(['34'], $kilmore->rework_stock_locations);
 
+        // Quarantine is neither saleable nor reworkable, so it is held apart from both.
         $this->assertSame('RCPNSW', $somersby->erp_entity_code);
         $this->assertSame(['NA', 'NB', 'ND'], $somersby->erp_stock_categories);
+        $this->assertSame(['MAIN'], $somersby->prime_stock_locations);
+        $this->assertSame(['QS'], $somersby->quarantine_stock_locations);
+        $this->assertSame(
+            ['22', 'TS'],
+            Depot::query()->where('code', 'THO')->sole()->prime_stock_locations,
+        );
 
         $this->assertSame('RCPQLD', $yatala->erp_entity_code);
         $this->assertSame(['40'], $yatala->prime_stock_locations);
         $this->assertSame(['42'], $yatala->rework_stock_locations);
+        $this->assertSame(['43'], $yatala->quarantine_stock_locations);
     }
 
     /**
