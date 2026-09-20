@@ -78,7 +78,10 @@ class ProductionBoard extends Page
             ->when($accessibleDepotIds !== null, fn (Builder $query) => $query->whereIn('depot_id', $accessibleDepotIds))
             ->when($selectedDepotId !== null, fn (Builder $query) => $query->where('depot_id', $selectedDepotId))
             ->when($selectedStatus !== '', fn (Builder $query) => $query->where('status', $selectedStatus))
-            ->whereBetween('schedule_date', [$from->toDateString(), $to->toDateString()])
+            // Compared as instants, not as 'Y-m-d' strings: the date cast persists a midnight time,
+            // so '2026-09-21 00:00:00' sorts after the bare '2026-09-21' and the window's last day
+            // drops out of the board.
+            ->whereBetween('schedule_date', [$from->startOfDay(), $to->endOfDay()])
             ->orderBy('depot_id')
             ->orderBy('machine_asset_id')
             ->orderBy('planned_start_at')

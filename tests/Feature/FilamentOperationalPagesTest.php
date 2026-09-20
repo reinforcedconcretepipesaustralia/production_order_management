@@ -15,6 +15,7 @@ use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Models\SteelForecast;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Livewire\Livewire;
@@ -115,6 +116,33 @@ class FilamentOperationalPagesTest extends TestCase
             ->assertDontSee('HIDDEN-SKU')
             ->set('status', 'draft')
             ->assertSee('No production schedules found');
+    }
+
+    /**
+     * Regression: schedule_date is a date cast, so it persists a midnight time. Compared against a
+     * bare 'Y-m-d' string the last day of the window sorts after it and vanishes from the board —
+     * which used to hide every Sunday's work whenever the week ended on a Sunday.
+     */
+    public function test_the_board_shows_work_on_the_last_day_of_its_window(): void
+    {
+        $depot = Depot::factory()->create(['code' => 'EDGE']);
+        $planner = User::factory()->withAppRoles(AppRole::PlannerAdmin)->create();
+        $sku = SkuMaster::factory()->create(['sku_code' => 'LAST-DAY-SKU']);
+
+        $lastDay = CarbonImmutable::parse(now()->endOfWeek()->toDateString());
+
+        ProductionSchedule::factory()->create([
+            'depot_id' => $depot->id,
+            'sku_master_id' => $sku->id,
+            'schedule_date' => $lastDay->toDateString(),
+            'planned_start_at' => $lastDay->addHours(6),
+            'planned_end_at' => $lastDay->addHours(14),
+            'status' => 'scheduled',
+        ]);
+
+        Livewire::actingAs($planner)
+            ->test(ProductionBoard::class)
+            ->assertSee('LAST-DAY-SKU');
     }
 
     public function test_materials_buyer_sees_assigned_forecasts_and_can_recalculate(): void

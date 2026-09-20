@@ -5,6 +5,8 @@ namespace App\Services\Planning;
 use App\Models\Depot;
 use App\Models\SalesOrder;
 use App\Models\SkuMaster;
+use App\Services\Sync\HoldingYardRouter;
+use App\Services\Sync\TenciaSource;
 use App\Support\Excel\XlsxReader;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -20,26 +22,9 @@ use RuntimeException;
  */
 final class OrderBookImporter
 {
-    /** Western Australia is closing, so its order book is not planned. */
-    private const EXCLUDED_ENTITIES = ['RCPWA'];
-
-    /**
-     * Entities that hold stock but make nothing. Their demand is real work for the plants that
-     * supply them, so it is routed rather than dropped.
-     *
-     * South Australia is a holding yard: NSW supplies 375 and 450, and Victoria everything
-     * larger. 450 is made in both states, and is sent to NSW here until the split is confirmed.
-     *
-     * @var array<string, list<array{up_to_mm: int|null, entity: string}>>
-     */
-    private const HOLDING_YARDS = [
-        'RCPSA' => [
-            ['up_to_mm' => 450, 'entity' => 'RCPNSW'],
-            ['up_to_mm' => null, 'entity' => 'RCPVIC'],
-        ],
-    ];
-
     private const SHEET = 'Outstanding Order';
+
+    public function __construct(private HoldingYardRouter $router) {}
 
     /**
      * @return array<string, int>
@@ -85,7 +70,7 @@ final class OrderBookImporter
                 continue;
             }
 
-            if (in_array($entity, self::EXCLUDED_ENTITIES, true)) {
+            if (in_array($entity, TenciaSource::EXCLUDED_ENTITIES, true)) {
                 $counts['skipped (closing plant)']++;
 
                 continue;
@@ -99,7 +84,9 @@ final class OrderBookImporter
                 continue;
             }
 
-            $supplying = $this->supplyingEntity($entity, $sku);
+            // The extract names no per-line source, so the diameter rule is all this can offer; the
+            // SQL sync routes on Tencia's own prefixed codes instead.
+            $supplying = $this->router->supplyingEntity($entity, $sku);
 
             if ($supplying !== $entity) {
                 $counts['routed from a holding yard']++;
@@ -163,38 +150,6 @@ final class OrderBookImporter
             'created_at' => now(),
             'updated_at' => now(),
         ];
-    }
-
-    /**
-     * Which entity actually makes this product for that order.
-     */
-    private function supplyingEntity(string $entity, SkuMaster $sku): string
-    {
-        $rules = self::HOLDING_YARDS[$entity] ?? null;
-
-        if ($rules === null) {
-            return $entity;
-        }
-
-        $diameter = $sku->diameter_mm ?? $this->diameterFromCode($sku->sku_code);
-
-        foreach ($rules as $rule) {
-            if ($rule['up_to_mm'] === null || ($diameter !== null && $diameter <= $rule['up_to_mm'])) {
-                return $rule['entity'];
-            }
-        }
-
-        return $entity;
-    }
-
-    /**
-     * Pipe codes carry the diameter in millimetres, e.g. R0375-4 is a 375.
-     */
-    private function diameterFromCode(string $code): ?int
-    {
-        return preg_match('/^[A-Z]+(\d{3,4})/', strtoupper($code), $matches) === 1
-            ? (int) $matches[1]
-            : null;
     }
 
     /**
