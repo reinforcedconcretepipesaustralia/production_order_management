@@ -54,7 +54,7 @@ class WorkbookDemandImporterTest extends TestCase
 
     public function test_imports_the_order_book(): void
     {
-        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'machine_preference' => 'BiDi 84']);
+        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'erp_entity_code' => 'RCPVIC', 'machine_preference' => 'BiDi 84']);
 
         $counts = $this->import();
 
@@ -73,7 +73,7 @@ class WorkbookDemandImporterTest extends TestCase
 
     public function test_splits_stock_into_prime_and_rework_by_location(): void
     {
-        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'machine_preference' => 'BiDi 84']);
+        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'erp_entity_code' => 'RCPVIC', 'machine_preference' => 'BiDi 84']);
 
         $this->import();
 
@@ -90,7 +90,7 @@ class WorkbookDemandImporterTest extends TestCase
 
     public function test_stock_is_attributed_to_the_plant_that_owns_the_location(): void
     {
-        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'machine_preference' => 'BiDi 84']);
+        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'erp_entity_code' => 'RCPVIC', 'machine_preference' => 'BiDi 84']);
 
         $this->import();
 
@@ -101,7 +101,7 @@ class WorkbookDemandImporterTest extends TestCase
 
     public function test_imports_monthly_sales_from_the_pipes_to_manufacture_tab(): void
     {
-        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'machine_preference' => 'BiDi 84']);
+        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'erp_entity_code' => 'RCPVIC', 'machine_preference' => 'BiDi 84']);
 
         $counts = $this->import();
 
@@ -127,7 +127,7 @@ class WorkbookDemandImporterTest extends TestCase
 
     public function test_re_importing_replaces_rather_than_doubling_demand(): void
     {
-        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'machine_preference' => 'BiDi 84']);
+        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'erp_entity_code' => 'RCPVIC', 'machine_preference' => 'BiDi 84']);
 
         $this->import();
         $this->import();

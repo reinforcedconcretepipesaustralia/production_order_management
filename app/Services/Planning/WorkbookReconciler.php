@@ -180,7 +180,12 @@ final class WorkbookReconciler
      */
     private function compare(array $row): array
     {
-        $sku = SkuMaster::query()->where('sku_code', $row['sku'])->first();
+        // Scoped to the workbook's own entity: the same stock code is a different product, with
+        // different rated speeds, in another state.
+        $sku = SkuMaster::query()
+            ->where('sku_code', $row['sku'])
+            ->when($this->entityCode !== null, fn ($query) => $query->where('erp_entity_code', $this->entityCode))
+            ->first();
 
         if ($sku === null) {
             return $this->skip("{$row['sku']} is not in sku_master — import the BOM or sync products");

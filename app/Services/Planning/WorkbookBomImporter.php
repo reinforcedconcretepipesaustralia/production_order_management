@@ -28,8 +28,16 @@ final class WorkbookBomImporter
     /**
      * @return array<string, int> Counts of what was written.
      */
-    public function import(string $path, string $entityCode, bool $dryRun = false): array
-    {
+    /**
+     * @param  bool  $runRatesOnly  Leave products and steel to the Tencia sync and take only the
+     *                              rated speeds, which no Tencia view carries.
+     */
+    public function import(
+        string $path,
+        string $entityCode,
+        bool $dryRun = false,
+        bool $runRatesOnly = false,
+    ): array {
         $depots = Depot::query()
             ->with('machines')
             ->where('erp_entity_code', $entityCode)
@@ -49,6 +57,7 @@ final class WorkbookBomImporter
             'wire requirements' => 0,
             'skipped (no machine match)' => 0,
             'skipped (not current)' => 0,
+            'skipped (not in the product master)' => 0,
         ];
 
         $layout = null;
@@ -90,10 +99,22 @@ final class WorkbookBomImporter
                 continue;
             }
 
-            $sku = $this->upsertSku($cells, $layout, $skuCode, $descriptions);
-            $counts['products']++;
+            if ($runRatesOnly) {
+                $sku = SkuMaster::query()
+                    ->where(['sku_code' => $skuCode, 'erp_entity_code' => $entityCode])
+                    ->first();
 
-            $counts['wire requirements'] += $this->syncWireRequirements($sku, $cells, $layout);
+                if ($sku === null) {
+                    $counts['skipped (not in the product master)']++;
+
+                    continue;
+                }
+            } else {
+                $sku = $this->upsertSku($cells, $layout, $skuCode, $descriptions, $entityCode);
+                $counts['products']++;
+
+                $counts['wire requirements'] += $this->syncWireRequirements($sku, $cells, $layout);
+            }
 
             $machineName = trim($cells[$layout->column('machine')] ?? '');
             $machine = $this->matchMachine($machineName, $machines);
@@ -120,8 +141,13 @@ final class WorkbookBomImporter
      * @param  array<string, string>  $cells
      * @param  array<string, string>  $descriptions
      */
-    private function upsertSku(array $cells, BomLayout $layout, string $skuCode, array $descriptions): SkuMaster
-    {
+    private function upsertSku(
+        array $cells,
+        BomLayout $layout,
+        string $skuCode,
+        array $descriptions,
+        string $entityCode,
+    ): SkuMaster {
         $diameter = $this->numeric($cells, $layout->column('diameter'));
         $adjusted = $this->numeric($cells, $layout->column('adjusted_speed'))
             ?? $this->numeric($cells, $layout->column('rated_speed'));
@@ -142,7 +168,10 @@ final class WorkbookBomImporter
             $attributes['standard_run_rate_per_hour'] = $adjusted;
         }
 
-        $existing = SkuMaster::query()->where('sku_code', $skuCode)->first();
+        // Scoped to the entity: the same stock code is a different product in another state, with its
+        // own bill and its own rated speeds, so the workbook must not write over the other state's.
+        $key = ['sku_code' => $skuCode, 'erp_entity_code' => $entityCode];
+        $existing = SkuMaster::query()->where($key)->first();
 
         if ($existing === null) {
             $attributes['standard_run_rate_per_hour'] ??= 0;
@@ -150,7 +179,7 @@ final class WorkbookBomImporter
             $attributes['wire_code'] = '';
         }
 
-        return SkuMaster::query()->updateOrCreate(['sku_code' => $skuCode], $attributes);
+        return SkuMaster::query()->updateOrCreate($key, $attributes);
     }
 
     /**

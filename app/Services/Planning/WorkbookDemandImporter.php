@@ -40,7 +40,10 @@ final class WorkbookDemandImporter
         }
 
         $reader = new XlsxReader($path);
-        $skus = SkuMaster::query()->pluck('id', 'sku_code');
+        // Scoped to the entity: the same stock code is a different product in another state.
+        $skus = SkuMaster::query()
+            ->where('erp_entity_code', $entityCode)
+            ->pluck('id', 'sku_code');
 
         if ($replace) {
             $this->clear($depots);
@@ -292,11 +295,19 @@ final class WorkbookDemandImporter
     {
         static $cache = [];
 
+        // Every depot passed here belongs to one entity, and the same stock code means a different
+        // product in another state, so the entity is part of the key.
+        $entityCode = (string) $depots->first()?->erp_entity_code;
+        $skuCode = $entityCode.'|'.$skuCode;
+
         if (isset($cache[$skuCode])) {
             return $cache[$skuCode];
         }
 
-        $preference = SkuMaster::query()->where('sku_code', $skuCode)->value('machine_preference');
+        $preference = SkuMaster::query()
+            ->where('sku_code', explode('|', $skuCode, 2)[1])
+            ->where('erp_entity_code', $entityCode)
+            ->value('machine_preference');
 
         if ($preference !== null) {
             $needle = strtolower(trim($preference));

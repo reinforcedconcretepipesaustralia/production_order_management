@@ -122,7 +122,7 @@ class WorkbookReconcilerTest extends TestCase
             ]);
         }
 
-        $sku = SkuMaster::factory()->create(['sku_code' => 'R0675-3']);
+        $sku = SkuMaster::factory()->create(['sku_code' => 'R0675-3', 'erp_entity_code' => 'NSW']);
         MachineSkuRunRate::query()->create([
             'machine_asset_id' => $machine->id,
             'sku_master_id' => $sku->id,
