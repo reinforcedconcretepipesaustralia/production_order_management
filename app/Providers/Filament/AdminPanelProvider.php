@@ -32,12 +32,13 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->brandName('RCPA')
-            ->brandLogo(asset('images/brand/rcpa-logo.png'))
-            ->darkModeBrandLogo(asset('images/brand/rcpa-logo-reversed.png'))
+            ->brandLogo(asset('images/brand/rcpa-logo.svg'))
+            ->darkModeBrandLogo(asset('images/brand/rcpa-logo-reversed.svg'))
+            // The artwork is trimmed to the mark, so this height is the mark itself, with no padding.
             ->brandLogoHeight(fn (): string => request()->routeIs('filament.admin.auth.*')
-                ? '5rem'
-                : '3.5rem')
-            ->favicon(asset('images/brand/rcpa-logo.png'))
+                ? '3.25rem'
+                : '2.5rem')
+            ->favicon(asset('images/brand/rcpa-logo.svg'))
             ->font('Poppins')
             ->defaultThemeMode(ThemeMode::Light)
             ->colors([
