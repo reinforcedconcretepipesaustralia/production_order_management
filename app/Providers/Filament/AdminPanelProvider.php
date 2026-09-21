@@ -53,6 +53,11 @@ class AdminPanelProvider extends PanelProvider
             // No topbar, so the navy sidebar runs the full height and carries the logo.
             ->topbar(false)
             ->sidebarCollapsibleOnDesktop()
+            ->navigationGroups([
+                'Operations',
+                'Plant Configuration',
+                'Data',
+            ])
             ->renderHook(
                 PanelsRenderHook::USER_MENU_BEFORE,
                 fn (): View => view('filament.sidebar-toggle'),
