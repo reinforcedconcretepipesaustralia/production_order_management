@@ -1,17 +1,14 @@
 <x-filament-panels::page>
     <x-filament::section>
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <form class="grid flex-1 gap-4 sm:grid-cols-3" aria-label="Steel requisition filters">
-                <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
-                    Depot
-                    <select wire:model.live="depotId" class="fi-select-input rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
-                        <option value="">All accessible depots</option>
-                        @foreach ($depots as $depot)
-                            <option value="{{ $depot->id }}">{{ $depot->code }} — {{ $depot->name }}</option>
-                        @endforeach
-                    </select>
-                </label>
-
+            <x-operational-filters
+                class="flex-1 sm:grid-cols-3 lg:grid-cols-5"
+                :plants="$plants"
+                :shifts="$shifts"
+                :machines="$machines"
+                :columns="5"
+                aria-label="Steel requisition filters"
+            >
                 <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
                     Wire code
                     <select wire:model.live="wireCode" class="fi-select-input rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
@@ -31,7 +28,7 @@
                         @endforeach
                     </select>
                 </label>
-            </form>
+            </x-operational-filters>
 
             @if ($canCalculate)
                 <x-filament::button wire:click="calculateForecasts" wire:loading.attr="disabled" icon="heroicon-o-arrow-path">
@@ -49,7 +46,7 @@
         <x-filament::section>
             <div class="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center dark:border-white/15">
                 <p class="font-semibold text-gray-900 dark:text-white">No steel forecasts found</p>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Adjust the filters or create a forecast stock position for an accessible depot.</p>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Adjust the filters or create a forecast stock position for an accessible plant.</p>
             </div>
         </x-filament::section>
     @else

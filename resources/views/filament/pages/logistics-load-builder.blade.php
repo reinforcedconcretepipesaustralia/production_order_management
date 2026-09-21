@@ -5,15 +5,14 @@
                 <x-slot name="heading">Load workspace</x-slot>
 
                 <div class="grid gap-4">
-                    <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
-                        Depot
-                        <select wire:model.live="depotId" class="fi-select-input rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
-                            <option value="">All accessible depots</option>
-                            @foreach ($depots as $depot)
-                                <option value="{{ $depot->id }}">{{ $depot->code }} — {{ $depot->name }}</option>
-                            @endforeach
-                        </select>
-                    </label>
+                    <x-operational-filters
+                        :plants="$plants"
+                        :shifts="$shifts"
+                        :machines="$machines"
+                        :columns="1"
+                        class="sm:grid-cols-1"
+                        aria-label="Load builder filters"
+                    />
 
                     <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
                         Existing load
@@ -47,7 +46,7 @@
                             <input wire:model="capacityTonnes" type="number" min="0.001" step="0.001" class="fi-input rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">
                             @error('capacityTonnes') <span class="text-xs text-danger-600">{{ $message }}</span> @enderror
                         </label>
-                        @error('depotId') <span class="text-xs text-danger-600">Select an accessible depot before creating a load.</span> @enderror
+                        @error('depotId') <span class="text-xs text-danger-600">Select an accessible plant before creating a load.</span> @enderror
 
                         <x-filament::button type="submit" icon="heroicon-o-plus">Create load</x-filament::button>
                     </form>

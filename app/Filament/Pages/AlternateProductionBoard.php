@@ -3,14 +3,13 @@
 namespace App\Filament\Pages;
 
 use App\Enums\Capability;
-use App\Filament\Concerns\HasOperationalDepotScope;
-use App\Filament\Widgets\ProductionScheduleCalendar;
+use App\Filament\Concerns\HasOperationalFilters;
 use Filament\Actions\Action;
 use Filament\Pages\Page;
 
 class AlternateProductionBoard extends Page
 {
-    use HasOperationalDepotScope;
+    use HasOperationalFilters;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-calendar';
 
@@ -31,13 +30,11 @@ class AlternateProductionBoard extends Page
     }
 
     /**
-     * @return array<class-string<ProductionScheduleCalendar>>
+     * @return array<string, mixed>
      */
-    protected function getFooterWidgets(): array
+    protected function getViewData(): array
     {
-        return [
-            ProductionScheduleCalendar::class,
-        ];
+        return $this->operationalFilterOptions();
     }
 
     /**

@@ -3,8 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Enums\Capability;
-use App\Filament\Concerns\HasOperationalDepotScope;
-use App\Models\Depot;
+use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\MaterialRequirement;
 use App\Models\PlanChangeLogEntry;
 use App\Models\PlanRun;
@@ -26,7 +25,7 @@ use RuntimeException;
  */
 class PlanReview extends Page
 {
-    use HasOperationalDepotScope;
+    use HasOperationalFilters;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-check';
 
@@ -39,8 +38,6 @@ class PlanReview extends Page
     protected string $view = 'filament.pages.plan-review';
 
     public ?int $planRunId = null;
-
-    public ?int $depotId = null;
 
     /** The line currently open for editing, if any. */
     public ?int $editingLineId = null;
@@ -92,11 +89,12 @@ class PlanReview extends Page
     protected function getViewData(): array
     {
         $run = $this->planRun();
+        $filters = $this->operationalFilterOptions();
 
         return [
             'runs' => $this->selectableRuns(),
             'run' => $run,
-            'depots' => $this->visibleDepots(),
+            ...$filters,
             'lanes' => $run === null ? collect() : $this->lanes($run),
             'materials' => $run === null ? collect() : $this->materials($run),
             'changes' => $run === null ? collect() : $this->changes($run),
@@ -257,31 +255,29 @@ class PlanReview extends Page
      */
     private function lanes(PlanRun $run): Collection
     {
-        $accessible = $this->accessibleDepotIds();
-
-        return ProductionSchedule::query()
-            ->with(['depot', 'machine', 'shift', 'sku'])
-            // The run's own lines, plus the lines a planner kept from an earlier run. Regeneration
-            // carries those through and plans around them, so they are committed work — a review
-            // that hid them would approve a plan the floor is not actually running.
-            ->where(fn (Builder $query) => $query
-                ->where('plan_run_id', $run->id)
-                ->orWhere(fn (Builder $carried) => $carried
-                    ->whereIn('depot_id', $run->depot_ids ?? [])
-                    ->whereBetween('schedule_date', [
-                        $run->horizon_from->startOfDay(),
-                        $run->horizon_to->endOfDay(),
-                    ])
-                    ->where(fn (Builder $kept) => $kept
-                        ->where('origin', ProductionSchedule::ORIGIN_MANUAL)
-                        ->orWhere('is_locked', true))
-                    ->whereNot('status', 'cancelled')))
-            ->when($accessible !== null, fn (Builder $query) => $query->whereIn('depot_id', $accessible))
-            ->when($this->depotId !== null, fn (Builder $query) => $query->where('depot_id', $this->depotId))
-            ->orderBy('depot_id')
-            ->orderBy('schedule_date')
-            ->orderBy('planned_start_at')
-            ->orderBy('id')
+        return $this->applyOperationalFilters(
+            ProductionSchedule::query()
+                ->with(['depot', 'machine', 'shift', 'sku'])
+                // The run's own lines, plus the lines a planner kept from an earlier run. Regeneration
+                // carries those through and plans around them, so they are committed work — a review
+                // that hid them would approve a plan the floor is not actually running.
+                ->where(fn (Builder $query) => $query
+                    ->where('plan_run_id', $run->id)
+                    ->orWhere(fn (Builder $carried) => $carried
+                        ->whereIn('depot_id', $run->depot_ids ?? [])
+                        ->whereBetween('schedule_date', [
+                            $run->horizon_from->startOfDay(),
+                            $run->horizon_to->endOfDay(),
+                        ])
+                        ->where(fn (Builder $kept) => $kept
+                            ->where('origin', ProductionSchedule::ORIGIN_MANUAL)
+                            ->orWhere('is_locked', true))
+                        ->whereNot('status', 'cancelled')))
+                ->orderBy('depot_id')
+                ->orderBy('schedule_date')
+                ->orderBy('planned_start_at')
+                ->orderBy('id'),
+        )
             ->get()
             ->groupBy(fn (ProductionSchedule $line): string => sprintf(
                 '%s|%s|%s',
@@ -297,12 +293,14 @@ class PlanReview extends Page
     private function materials(PlanRun $run): Collection
     {
         $accessible = $this->accessibleDepotIds();
+        $selectedPlantIds = $this->selectedPlantIds();
 
+        // Materials are plant-scoped only — requirements are not stored per shift or machine.
         return MaterialRequirement::query()
             ->wire()
             ->where('plan_run_id', $run->id)
             ->when($accessible !== null, fn (Builder $query) => $query->whereIn('depot_id', $accessible))
-            ->when($this->depotId !== null, fn (Builder $query) => $query->where('depot_id', $this->depotId))
+            ->when($selectedPlantIds !== null, fn (Builder $query) => $query->whereIn('depot_id', $selectedPlantIds))
             ->get()
             ->groupBy('material_code')
             ->map(fn (Collection $group): float => round((float) $group->sum('quantity'), 1))
@@ -343,21 +341,7 @@ class PlanReview extends Page
     }
 
     /**
-     * @return Collection<int, Depot>
-     */
-    private function visibleDepots(): Collection
-    {
-        $accessible = $this->accessibleDepotIds();
-
-        return Depot::query()
-            ->where('is_active', true)
-            ->when($accessible !== null, fn (Builder $query) => $query->whereKey($accessible))
-            ->orderBy('name')
-            ->get();
-    }
-
-    /**
-     * A line the current user may actually reach, which is how depot scoping is enforced on writes as
+     * A line the current user may actually reach, which is how plant scoping is enforced on writes as
      * well as on reads. Returns null and says so rather than aborting: a raw 403 page in place of the
      * plan is a worse answer than a message beside it.
      */

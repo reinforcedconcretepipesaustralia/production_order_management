@@ -11,9 +11,11 @@ use App\Filament\Widgets\ProductionScheduleCalendar;
 use App\Models\Depot;
 use App\Models\DispatchLoad;
 use App\Models\InventorySoh;
+use App\Models\MachineAsset;
 use App\Models\OrderAllocation;
 use App\Models\ProductionSchedule;
 use App\Models\SalesOrder;
+use App\Models\Shift;
 use App\Models\SkuMaster;
 use App\Models\SkuWireRequirement;
 use App\Models\SteelForecast;
@@ -76,6 +78,9 @@ class FilamentOperationalPagesTest extends TestCase
             ->assertDontSee('RCPA_SQL_PASSWORD');
         $this->get(AlternateProductionBoard::getUrl())
             ->assertOk()
+            ->assertSee('Plant')
+            ->assertSee('Shift')
+            ->assertSee('Machines')
             ->assertSee('Guava schedule timeline')
             ->assertSee('view-only while we compare both approaches');
         $this->get(SteelRequisitionDashboard::getUrl())
@@ -120,10 +125,114 @@ class FilamentOperationalPagesTest extends TestCase
 
         Livewire::actingAs($operator)
             ->test(ProductionBoard::class)
+            ->assertSee('Plant')
+            ->assertSee('Shift')
+            ->assertSee('Machines')
             ->assertSee('VISIBLE-SKU')
             ->assertDontSee('HIDDEN-SKU')
             ->set('status', 'draft')
             ->assertSee('No production schedules found');
+    }
+
+    public function test_production_board_applies_plant_shift_and_machine_filters(): void
+    {
+        $plant = Depot::factory()->create(['code' => 'PLANT-A']);
+        $planner = User::factory()->withAppRoles(AppRole::PlannerAdmin)->create();
+        $morning = Shift::factory()->create([
+            'depot_id' => $plant->id,
+            'name' => 'Morning',
+            'is_active' => true,
+        ]);
+        $afternoon = Shift::factory()->create([
+            'depot_id' => $plant->id,
+            'name' => 'Afternoon',
+            'is_active' => true,
+        ]);
+        $machineA = MachineAsset::factory()->create([
+            'depot_id' => $plant->id,
+            'name' => 'BiDi 36',
+            'is_active' => true,
+        ]);
+        $machineB = MachineAsset::factory()->create([
+            'depot_id' => $plant->id,
+            'name' => 'BiDi 84',
+            'is_active' => true,
+        ]);
+        $skuMorning = SkuMaster::factory()->create(['sku_code' => 'MORNING-SKU']);
+        $skuAfternoon = SkuMaster::factory()->create(['sku_code' => 'AFTERNOON-SKU']);
+        $skuOtherMachine = SkuMaster::factory()->create(['sku_code' => 'OTHER-MACHINE-SKU']);
+
+        ProductionSchedule::factory()->create([
+            'depot_id' => $plant->id,
+            'shift_id' => $morning->id,
+            'machine_asset_id' => $machineA->id,
+            'sku_master_id' => $skuMorning->id,
+            'schedule_date' => now()->toDateString(),
+            'planned_start_at' => now()->startOfDay()->addHours(6),
+            'planned_end_at' => now()->startOfDay()->addHours(14),
+            'status' => 'scheduled',
+        ]);
+        ProductionSchedule::factory()->create([
+            'depot_id' => $plant->id,
+            'shift_id' => $afternoon->id,
+            'machine_asset_id' => $machineA->id,
+            'sku_master_id' => $skuAfternoon->id,
+            'schedule_date' => now()->toDateString(),
+            'planned_start_at' => now()->startOfDay()->addHours(14),
+            'planned_end_at' => now()->startOfDay()->addHours(22),
+            'status' => 'scheduled',
+        ]);
+        ProductionSchedule::factory()->create([
+            'depot_id' => $plant->id,
+            'shift_id' => $morning->id,
+            'machine_asset_id' => $machineB->id,
+            'sku_master_id' => $skuOtherMachine->id,
+            'schedule_date' => now()->toDateString(),
+            'planned_start_at' => now()->startOfDay()->addHours(6),
+            'planned_end_at' => now()->startOfDay()->addHours(14),
+            'status' => 'scheduled',
+        ]);
+
+        Livewire::actingAs($planner)
+            ->test(ProductionBoard::class)
+            ->set('depotId', $plant->id)
+            ->assertSee('MORNING-SKU')
+            ->assertSee('AFTERNOON-SKU')
+            ->assertSee('OTHER-MACHINE-SKU')
+            ->set('shiftName', 'Morning')
+            ->assertSee('MORNING-SKU')
+            ->assertDontSee('AFTERNOON-SKU')
+            ->assertSee('OTHER-MACHINE-SKU')
+            ->set('machineName', 'BiDi 36')
+            ->assertSee('MORNING-SKU')
+            ->assertDontSee('AFTERNOON-SKU')
+            ->assertDontSee('OTHER-MACHINE-SKU');
+    }
+
+    public function test_operational_filter_dropdowns_list_distinct_shift_and_machine_names(): void
+    {
+        $melton = Depot::factory()->create(['code' => 'MEL', 'name' => 'Melton']);
+        $yatala = Depot::factory()->create(['code' => 'YAT', 'name' => 'Yatala']);
+        $planner = User::factory()->withAppRoles(AppRole::PlannerAdmin)->create();
+
+        Shift::factory()->create(['depot_id' => $melton->id, 'name' => 'Day Shift', 'is_active' => true]);
+        Shift::factory()->create(['depot_id' => $yatala->id, 'name' => 'Day Shift', 'is_active' => true]);
+        Shift::factory()->create(['depot_id' => $melton->id, 'name' => 'Afternoon Shift', 'is_active' => true]);
+        MachineAsset::factory()->create(['depot_id' => $melton->id, 'name' => 'BiDi 36', 'is_active' => true]);
+        MachineAsset::factory()->create(['depot_id' => $yatala->id, 'name' => 'BiDi 36', 'is_active' => true]);
+        MachineAsset::factory()->create(['depot_id' => $melton->id, 'name' => 'BiDi 84', 'is_active' => true]);
+
+        Livewire::actingAs($planner)
+            ->test(ProductionBoard::class)
+            ->assertSeeHtml('>Day Shift</option>')
+            ->assertSeeHtml('>Afternoon Shift</option>')
+            ->assertSeeHtml('>BiDi 36</option>')
+            ->assertSeeHtml('>BiDi 84</option>');
+
+        $html = Livewire::actingAs($planner)->test(ProductionBoard::class)->html();
+
+        $this->assertSame(1, substr_count($html, '>Day Shift</option>'));
+        $this->assertSame(1, substr_count($html, '>BiDi 36</option>'));
     }
 
     public function test_guava_board_maps_only_accessible_schedules_and_machines(): void

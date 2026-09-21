@@ -3,7 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Enums\Capability;
-use App\Filament\Concerns\HasOperationalDepotScope;
+use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\MachineAsset;
 use App\Models\ProductionSchedule;
 use Guava\Calendar\Enums\CalendarViewType;
@@ -16,7 +16,7 @@ use Illuminate\Support\Collection;
 
 class ProductionScheduleCalendar extends CalendarWidget
 {
-    use HasOperationalDepotScope;
+    use HasOperationalFilters;
 
     protected static bool $isDiscovered = false;
 
@@ -67,18 +67,14 @@ class ProductionScheduleCalendar extends CalendarWidget
 
     protected function getEvents(FetchInfo $info): Collection|array|Builder
     {
-        $accessibleDepotIds = $this->accessibleDepotIds();
-
-        return ProductionSchedule::query()
-            ->with(['depot', 'machine', 'sku'])
-            ->when(
-                $accessibleDepotIds !== null,
-                fn (Builder $query) => $query->whereIn('depot_id', $accessibleDepotIds),
-            )
-            ->where('planned_start_at', '<', $info->end)
-            ->where('planned_end_at', '>', $info->start)
-            ->orderBy('planned_start_at')
-            ->orderBy('id')
+        return $this->applyOperationalFilters(
+            ProductionSchedule::query()
+                ->with(['depot', 'machine', 'sku'])
+                ->where('planned_start_at', '<', $info->end)
+                ->where('planned_end_at', '>', $info->start)
+                ->orderBy('planned_start_at')
+                ->orderBy('id'),
+        )
             ->get()
             ->map(fn (ProductionSchedule $schedule): CalendarEvent => CalendarEvent::make()
                 ->title($this->eventTitle($schedule))
@@ -100,12 +96,26 @@ class ProductionScheduleCalendar extends CalendarWidget
     protected function getResources(): Collection|array|Builder
     {
         $accessibleDepotIds = $this->accessibleDepotIds();
+        $this->syncOperationalFilterSelection();
 
         return MachineAsset::query()
             ->with('depot')
+            ->where('is_active', true)
             ->when(
                 $accessibleDepotIds !== null,
                 fn (Builder $query) => $query->whereIn('depot_id', $accessibleDepotIds),
+            )
+            ->when($this->depotId !== null, fn (Builder $query) => $query->where('depot_id', $this->depotId))
+            ->when(
+                $this->machineName !== '',
+                fn (Builder $query) => $query->whereKey($this->matchingMachineIds()),
+            )
+            ->when(
+                $this->shiftName !== '',
+                fn (Builder $query) => $query->whereHas(
+                    'schedules',
+                    fn (Builder $schedules) => $schedules->whereIn('shift_id', $this->matchingShiftIds()),
+                ),
             )
             ->orderBy('depot_id')
             ->orderBy('name')

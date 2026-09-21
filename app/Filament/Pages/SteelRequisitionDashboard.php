@@ -3,7 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Enums\Capability;
-use App\Filament\Concerns\HasOperationalDepotScope;
+use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\Depot;
 use App\Models\ProductionSchedule;
 use App\Models\SteelForecast;
@@ -19,7 +19,7 @@ use Illuminate\Support\Collection;
 
 class SteelRequisitionDashboard extends Page
 {
-    use HasOperationalDepotScope;
+    use HasOperationalFilters;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-chart-bar-square';
 
@@ -30,8 +30,6 @@ class SteelRequisitionDashboard extends Page
     protected static ?int $navigationSort = 20;
 
     protected string $view = 'filament.pages.steel-requisition-dashboard';
-
-    public ?int $depotId = null;
 
     public string $wireCode = '';
 
@@ -76,7 +74,7 @@ class SteelRequisitionDashboard extends Page
             $rows = $rows->where('urgency', $this->urgency)->values();
         }
 
-        $depots = $this->filteredDepots(false);
+        $filters = $this->operationalFilterOptions();
         $wireCodes = SteelForecast::query()
             ->when($this->accessibleDepotIds() !== null, fn (Builder $query) => $query->whereIn('depot_id', $this->accessibleDepotIds()))
             ->distinct()
@@ -86,7 +84,7 @@ class SteelRequisitionDashboard extends Page
         $reader = new RcpaViewReadService(new RcpaViewCatalog);
 
         return [
-            'depots' => $depots,
+            ...$filters,
             'wireCodes' => $wireCodes,
             'urgencies' => $urgencies,
             'rows' => $rows,
@@ -114,23 +112,24 @@ class SteelRequisitionDashboard extends Page
             ->orderBy('wire_code')
             ->get()
             ->map(function (SteelForecast $forecast) use ($steelPlanningService): array {
-                $schedules = ProductionSchedule::query()
-                    // Only this gauge's requirement, since a pipe consumes several.
-                    ->with(['sku.wireRequirements' => fn ($query) => $query->where('wire_code', $forecast->wire_code)])
-                    ->where('depot_id', $forecast->depot_id)
-                    // Compared as instants, not 'Y-m-d' strings: schedule_date is a date cast, so its
-                    // midnight time sorts after a bare date and the window's last day drops out.
-                    ->whereBetween('schedule_date', [
-                        $forecast->forecast_date->copy()->startOfDay(),
-                        $forecast->forecast_date->copy()->addDays(13)->endOfDay(),
-                    ])
-                    ->whereNotIn('status', ['cancelled'])
-                    ->whereHas(
-                        'sku.wireRequirements',
-                        fn (Builder $query) => $query->where('wire_code', $forecast->wire_code),
-                    )
-                    ->orderBy('schedule_date')
-                    ->get();
+                $schedules = $this->applyOperationalFilters(
+                    ProductionSchedule::query()
+                        // Only this gauge's requirement, since a pipe consumes several.
+                        ->with(['sku.wireRequirements' => fn ($query) => $query->where('wire_code', $forecast->wire_code)])
+                        ->where('depot_id', $forecast->depot_id)
+                        // Compared as instants, not 'Y-m-d' strings: schedule_date is a date cast, so its
+                        // midnight time sorts after a bare date and the window's last day drops out.
+                        ->whereBetween('schedule_date', [
+                            $forecast->forecast_date->copy()->startOfDay(),
+                            $forecast->forecast_date->copy()->addDays(13)->endOfDay(),
+                        ])
+                        ->whereNotIn('status', ['cancelled'])
+                        ->whereHas(
+                            'sku.wireRequirements',
+                            fn (Builder $query) => $query->where('wire_code', $forecast->wire_code),
+                        )
+                        ->orderBy('schedule_date'),
+                )->get();
 
                 $result = $steelPlanningService->calculate(
                     $schedules->flatMap(fn (ProductionSchedule $schedule): array => SteelDemandLine::forSku(
@@ -170,17 +169,18 @@ class SteelRequisitionDashboard extends Page
      */
     private function filteredDepots(bool $applySelection = true): Collection
     {
-        $accessibleDepotIds = $this->accessibleDepotIds();
-        $depots = Depot::query()
-            ->where('is_active', true)
-            ->when($accessibleDepotIds !== null, fn (Builder $query) => $query->whereKey($accessibleDepotIds))
-            ->orderBy('name')
-            ->get();
+        $depots = $this->accessiblePlants();
 
-        if (! $applySelection || $this->depotId === null) {
+        if (! $applySelection) {
             return $depots;
         }
 
-        return $depots->where('id', $this->depotId)->values();
+        $selectedPlantIds = $this->selectedPlantIds();
+
+        if ($selectedPlantIds === null) {
+            return $depots;
+        }
+
+        return $depots->whereIn('id', $selectedPlantIds)->values();
     }
 }

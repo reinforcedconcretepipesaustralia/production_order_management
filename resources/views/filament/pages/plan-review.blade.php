@@ -1,7 +1,13 @@
 <x-filament-panels::page>
     <x-filament::section>
-        <form class="grid gap-4 md:grid-cols-3" aria-label="Plan review filters">
-            <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200 md:col-span-2">
+        <x-operational-filters
+            :plants="$plants"
+            :shifts="$shifts"
+            :machines="$machines"
+            :columns="4"
+            aria-label="Plan review filters"
+        >
+            <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
                 Plan run
                 <select wire:model.live="planRunId" class="fi-select-input rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
                     @foreach ($runs as $id => $label)
@@ -9,17 +15,7 @@
                     @endforeach
                 </select>
             </label>
-
-            <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
-                Depot
-                <select wire:model.live="depotId" class="fi-select-input rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
-                    <option value="">All accessible depots</option>
-                    @foreach ($depots as $depot)
-                        <option value="{{ $depot->id }}">{{ $depot->code }} — {{ $depot->name }}</option>
-                    @endforeach
-                </select>
-            </label>
-        </form>
+        </x-operational-filters>
     </x-filament::section>
 
     @if ($run === null)
@@ -113,7 +109,7 @@
             @if ($lanes->isEmpty())
                 <div class="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center dark:border-white/15">
                     <p class="font-semibold text-gray-900 dark:text-white">No lines in this plan</p>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Widen the depot filter, or generate a new plan.</p>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Widen the plant, shift, or machine filters, or generate a new plan.</p>
                 </div>
             @else
                 <div class="space-y-6">

@@ -3,7 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Enums\Capability;
-use App\Filament\Concerns\HasOperationalDepotScope;
+use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\Depot;
 use App\Models\ProductionSchedule;
 use App\Services\Rcpa\RcpaViewReadService;
@@ -12,12 +12,11 @@ use App\Services\Scheduling\ShiftCapacityCalculator;
 use App\Support\Rcpa\RcpaViewCatalog;
 use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class ProductionBoard extends Page
 {
-    use HasOperationalDepotScope;
+    use HasOperationalFilters;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-calendar-days';
 
@@ -28,8 +27,6 @@ class ProductionBoard extends Page
     protected static ?int $navigationSort = 10;
 
     protected string $view = 'filament.pages.production-board';
-
-    public ?int $depotId = null;
 
     public string $fromDate = '';
 
@@ -56,42 +53,29 @@ class ProductionBoard extends Page
      */
     protected function getViewData(): array
     {
-        $accessibleDepotIds = $this->accessibleDepotIds();
-        $depots = Depot::query()
-            ->where('is_active', true)
-            ->when($accessibleDepotIds !== null, fn (Builder $query) => $query->whereKey($accessibleDepotIds))
-            ->orderBy('name')
-            ->get();
-
-        $selectedDepotId = $this->depotId;
-        if ($selectedDepotId !== null && ! $depots->contains('id', $selectedDepotId)) {
-            $selectedDepotId = null;
-            $this->depotId = null;
-        }
-
+        $filters = $this->operationalFilterOptions();
         [$from, $to] = $this->dateRange();
         $statuses = ['draft', 'scheduled', 'in_progress', 'completed', 'cancelled'];
         $selectedStatus = in_array($this->status, $statuses, true) ? $this->status : '';
 
-        $schedules = ProductionSchedule::query()
-            ->with(['depot', 'machine', 'mould', 'shift', 'sku'])
-            ->when($accessibleDepotIds !== null, fn (Builder $query) => $query->whereIn('depot_id', $accessibleDepotIds))
-            ->when($selectedDepotId !== null, fn (Builder $query) => $query->where('depot_id', $selectedDepotId))
-            ->when($selectedStatus !== '', fn (Builder $query) => $query->where('status', $selectedStatus))
-            // Compared as instants, not as 'Y-m-d' strings: the date cast persists a midnight time,
-            // so '2026-09-21 00:00:00' sorts after the bare '2026-09-21' and the window's last day
-            // drops out of the board.
-            ->whereBetween('schedule_date', [$from->startOfDay(), $to->endOfDay()])
-            ->orderBy('depot_id')
-            ->orderBy('machine_asset_id')
-            ->orderBy('planned_start_at')
-            ->orderBy('id')
-            ->get();
+        $schedules = $this->applyOperationalFilters(
+            ProductionSchedule::query()
+                ->with(['depot', 'machine', 'mould', 'shift', 'sku'])
+                ->when($selectedStatus !== '', fn ($query) => $query->where('status', $selectedStatus))
+                // Compared as instants, not as 'Y-m-d' strings: the date cast persists a midnight time,
+                // so '2026-09-21 00:00:00' sorts after the bare '2026-09-21' and the window's last day
+                // drops out of the board.
+                ->whereBetween('schedule_date', [$from->startOfDay(), $to->endOfDay()])
+                ->orderBy('depot_id')
+                ->orderBy('machine_asset_id')
+                ->orderBy('planned_start_at')
+                ->orderBy('id'),
+        )->get();
 
         $reader = new RcpaViewReadService(new RcpaViewCatalog);
 
         return [
-            'depots' => $depots,
+            ...$filters,
             'statuses' => $statuses,
             'days' => collect(range(0, $from->diffInDays($to)))
                 ->map(fn (int $offset): CarbonImmutable => $from->addDays($offset)),

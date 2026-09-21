@@ -5,7 +5,7 @@ namespace App\Filament\Pages;
 use App\Enums\Capability;
 use App\Exceptions\IneligibleLoadQuantityException;
 use App\Exceptions\LoadCapacityExceededException;
-use App\Filament\Concerns\HasOperationalDepotScope;
+use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\Depot;
 use App\Models\DispatchLoad;
 use App\Models\DispatchLoadItem;
@@ -17,13 +17,12 @@ use App\Support\Rcpa\RcpaViewCatalog;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
 class LogisticsLoadBuilder extends Page
 {
-    use HasOperationalDepotScope;
+    use HasOperationalFilters;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-truck';
 
@@ -34,8 +33,6 @@ class LogisticsLoadBuilder extends Page
     protected static ?int $navigationSort = 30;
 
     protected string $view = 'filament.pages.logistics-load-builder';
-
-    public ?int $depotId = null;
 
     public ?int $dispatchLoadId = null;
 
@@ -70,7 +67,7 @@ class LogisticsLoadBuilder extends Page
             'capacityTonnes' => ['required', 'numeric', 'gt:0', 'max:9999999'],
         ]);
 
-        $depot = $this->accessibleDepots()->firstWhere('id', (int) $data['depotId']);
+        $depot = $this->accessiblePlants()->firstWhere('id', (int) $data['depotId']);
         abort_unless($depot instanceof Depot, 404);
         abort_unless($this->canManageDepot(Capability::ManageDispatchLoads, $depot), 403);
 
@@ -217,15 +214,14 @@ class LogisticsLoadBuilder extends Page
      */
     protected function getViewData(): array
     {
-        $depots = $this->accessibleDepots();
-        if ($this->depotId !== null && ! $depots->contains('id', $this->depotId)) {
-            $this->depotId = null;
-        }
+        $filters = $this->operationalFilterOptions();
+        $depots = $filters['plants'];
+        $selectedPlantIds = $this->selectedPlantIds();
 
         $loads = DispatchLoad::query()
             ->with('depot')
             ->when($this->accessibleDepotIds() !== null, fn (Builder $query) => $query->whereIn('depot_id', $this->accessibleDepotIds()))
-            ->when($this->depotId !== null, fn (Builder $query) => $query->where('depot_id', $this->depotId))
+            ->when($selectedPlantIds !== null, fn (Builder $query) => $query->whereIn('depot_id', $selectedPlantIds))
             ->orderByDesc('dispatch_date')
             ->orderByDesc('id')
             ->get();
@@ -253,7 +249,7 @@ class LogisticsLoadBuilder extends Page
             ->first();
 
         return [
-            'depots' => $depots,
+            ...$filters,
             'loads' => $loads,
             'load' => $load,
             'allocations' => $allocations,
@@ -280,19 +276,5 @@ class LogisticsLoadBuilder extends Page
         return DispatchLoad::query()
             ->when($this->accessibleDepotIds() !== null, fn (Builder $query) => $query->whereIn('depot_id', $this->accessibleDepotIds()))
             ->find($this->dispatchLoadId);
-    }
-
-    /**
-     * @return Collection<int, Depot>
-     */
-    private function accessibleDepots(): Collection
-    {
-        $accessibleDepotIds = $this->accessibleDepotIds();
-
-        return Depot::query()
-            ->where('is_active', true)
-            ->when($accessibleDepotIds !== null, fn (Builder $query) => $query->whereKey($accessibleDepotIds))
-            ->orderBy('name')
-            ->get();
     }
 }

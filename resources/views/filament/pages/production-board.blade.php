@@ -1,16 +1,12 @@
 <x-filament-panels::page>
     <x-filament::section>
-        <form class="grid gap-4 md:grid-cols-4" aria-label="Production board filters">
-            <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
-                Depot
-                <select wire:model.live="depotId" class="fi-select-input rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
-                    <option value="">All accessible depots</option>
-                    @foreach ($depots as $depot)
-                        <option value="{{ $depot->id }}">{{ $depot->code }} — {{ $depot->name }}</option>
-                    @endforeach
-                </select>
-            </label>
-
+        <x-operational-filters
+            :plants="$plants"
+            :shifts="$shifts"
+            :machines="$machines"
+            :columns="6"
+            aria-label="Production board filters"
+        >
             <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
                 From
                 <input wire:model.live.debounce.400ms="fromDate" type="date" class="fi-input rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">
@@ -30,23 +26,23 @@
                     @endforeach
                 </select>
             </label>
-        </form>
+        </x-operational-filters>
     </x-filament::section>
 
     <x-filament::section>
         <x-slot name="heading">Schedule timeline</x-slot>
-        <x-slot name="description">Times are shown in each depot’s operating day. This board is intentionally view-only and does not imply drag-and-drop scheduling.</x-slot>
+        <x-slot name="description">Times are shown in each plant’s operating day. This board is intentionally view-only and does not imply drag-and-drop scheduling.</x-slot>
 
         @if ($lanes->isEmpty())
             <div class="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center dark:border-white/15">
                 <p class="font-semibold text-gray-900 dark:text-white">No production schedules found</p>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Adjust the depot, date, or status filters to widen the planning window.</p>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Adjust the plant, shift, machine, date, or status filters to widen the planning window.</p>
             </div>
         @else
             <div class="overflow-x-auto" role="region" aria-label="Production Gantt board" tabindex="0">
                 <div class="min-w-[72rem]">
                     <div class="grid border-b border-gray-200 dark:border-white/10" style="grid-template-columns: 13rem repeat({{ $days->count() }}, minmax(12rem, 1fr));">
-                        <div class="p-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Depot / machine</div>
+                        <div class="p-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Plant / machine</div>
                         @foreach ($days as $day)
                             <div class="border-l border-gray-200 p-3 text-center dark:border-white/10">
                                 <span class="block text-xs font-semibold uppercase tracking-wider text-gray-500">{{ $day->format('D') }}</span>
