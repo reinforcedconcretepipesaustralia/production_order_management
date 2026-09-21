@@ -23,17 +23,31 @@ class SteelReplenishmentCalculationController extends Controller
         $forecast = SteelForecast::query()->findOrFail($validated['steel_forecast_id']);
         $skus = SkuMaster::query()
             ->whereKey(array_column($validated['demand_lines'], 'sku_id'))
+            // Only the forecast's own gauge: a pipe consumes several, ordered separately.
+            ->with(['wireRequirements' => fn ($query) => $query->where('wire_code', $forecast->wire_code)])
             ->get()
             ->keyBy('id');
         try {
-            $demandLines = array_map(
-                fn (array $line): SteelDemandLine => new SteelDemandLine(
-                    depotId: $validated['depot_id'],
-                    sku: $skus->get($line['sku_id']),
-                    plannedQuantity: $line['planned_quantity'],
-                ),
-                $validated['demand_lines'],
-            );
+            $demandLines = [];
+
+            foreach ($validated['demand_lines'] as $line) {
+                // A product with no requirement for this gauge simply contributes none of it.
+                $demandLines = [...$demandLines, ...SteelDemandLine::forSku(
+                    $validated['depot_id'],
+                    $skus->get($line['sku_id']),
+                    (int) $line['planned_quantity'],
+                )];
+            }
+
+            // A pipe that does not use this gauge contributes none of it, which is a real answer. A
+            // request where none of the products use it at all is a mismatched pairing, not a zero.
+            if ($validated['demand_lines'] !== [] && $demandLines === []) {
+                throw new InvalidArgumentException(sprintf(
+                    'None of the supplied products consume %s.',
+                    $forecast->wire_code,
+                ));
+            }
+
             $result = $planner->calculate(
                 $demandLines,
                 SteelStockPosition::fromForecast($forecast),

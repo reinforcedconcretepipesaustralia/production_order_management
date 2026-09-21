@@ -37,6 +37,7 @@ final class PlanGenerator
         private readonly ShiftCapacityCalculator $capacity,
         private readonly OeeSettingResolver $oeeSettings,
         private readonly RunRateResolver $runRates,
+        private readonly MaterialForecastService $materials,
     ) {}
 
     public function generate(PlanRequest $request): PlanRun
@@ -72,7 +73,14 @@ final class PlanGenerator
                 $lines += $this->fillSlot($run, $slot, $request, $outstanding, $retained, $lastSkuByMachine);
             }
 
-            $run->update(['metrics' => $this->metricsFor($run, $depots, $slots, $outstanding, $lines)]);
+            // Materials are computed with the plan, not on request: a plan whose steel requirement
+            // has to be asked for separately is a plan somebody orders against without it.
+            $materials = $this->materials->forPlanRun($run);
+
+            $run->update([
+                'metrics' => $this->metricsFor($run, $depots, $slots, $outstanding, $lines)
+                    + $this->materialMetrics($materials),
+            ]);
 
             return $run->fresh(['schedules']);
         }, 3);
@@ -472,6 +480,23 @@ final class PlanGenerator
      * @param  array<int, Collection<int, PlannedRequirement>>  $outstanding
      * @return array<string, mixed>
      */
+    /**
+     * What the plan consumes, summarised onto the run so the review screen and the narrative can
+     * show it without recomputing.
+     *
+     * @return array<string, mixed>
+     */
+    private function materialMetrics(MaterialForecast $materials): array
+    {
+        return [
+            'wire_kg' => $materials->totalWireKg(),
+            'wire_tonnes' => $materials->totalWireTonnes(),
+            'wire_by_gauge_kg' => $materials->wireByGauge()->all(),
+            'concrete_m3' => $materials->totalConcreteM3(),
+            'concrete_by_mix_m3' => $materials->concreteByMix()->all(),
+        ];
+    }
+
     private function metricsFor(
         PlanRun $run,
         Collection $depots,

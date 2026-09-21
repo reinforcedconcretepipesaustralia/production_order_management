@@ -42,4 +42,26 @@ class RcpaSqlFailureClassifierTest extends TestCase
             RcpaSqlFailureClassifier::reason($exception),
         );
     }
+
+    public function test_an_unresolvable_hostname_is_reported_as_a_vpn_problem(): void
+    {
+        $this->assertSame(
+            RcpaSqlFailureClassifier::UNRESOLVED_HOST,
+            RcpaSqlFailureClassifier::unresolvedHostReason(
+                'rcpa-sql-does-not-exist.invalid',
+                'rcpa-sql-does-not-exist.invalid',
+            ),
+        );
+        $this->assertNull(RcpaSqlFailureClassifier::unresolvedHostReason('127.0.0.1'));
+    }
+
+    public function test_classifies_getaddrinfo_failures_as_an_unresolved_host_without_the_raw_message(): void
+    {
+        $exception = new RuntimeException('[Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: Error code 0x2AF9; getaddrinfo failed');
+
+        $this->assertSame(
+            RcpaSqlFailureClassifier::UNRESOLVED_HOST,
+            RcpaSqlFailureClassifier::reason($exception),
+        );
+    }
 }

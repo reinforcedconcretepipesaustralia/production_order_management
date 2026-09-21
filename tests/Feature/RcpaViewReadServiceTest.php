@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\Rcpa\RcpaViewReadService;
+use App\Support\Rcpa\RcpaSqlFailureClassifier;
 use App\Support\Rcpa\RcpaViewCatalog;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -85,6 +86,7 @@ class RcpaViewReadServiceTest extends TestCase
     public function test_a_recent_connection_failure_short_circuits_further_reads(): void
     {
         config([
+            'database.connections.rcpa_sql.host' => '127.0.0.1',
             'database.connections.rcpa_sql.database' => 'TenciaRCP_TEST',
             'database.connections.rcpa_sql.username' => 'reader',
             'database.connections.rcpa_sql.password' => 'should-never-appear',
@@ -117,6 +119,24 @@ class RcpaViewReadServiceTest extends TestCase
 
         $this->assertSame('unreadable', $stock['status']);
         $this->assertIsString(Cache::get('rcpa_sql.connection_failure_reason'));
+        $this->assertStringNotContainsString('should-never-appear', (string) $stock['reason']);
+    }
+
+    public function test_an_unresolvable_host_fails_without_opening_a_sql_handshake(): void
+    {
+        config([
+            'database.connections.rcpa_sql.host' => 'rcpa-sql-does-not-exist.invalid',
+            'database.connections.rcpa_sql.database' => 'TenciaRCP_TEST',
+            'database.connections.rcpa_sql.username' => 'reader',
+            'database.connections.rcpa_sql.password' => 'should-never-appear',
+        ]);
+
+        Cache::forget('rcpa_sql.connection_failure_reason');
+
+        $stock = (new RcpaViewReadService(new RcpaViewCatalog))->stockOnHand();
+
+        $this->assertSame('unreadable', $stock['status']);
+        $this->assertSame(RcpaSqlFailureClassifier::UNRESOLVED_HOST, $stock['reason']);
         $this->assertStringNotContainsString('should-never-appear', (string) $stock['reason']);
     }
 }

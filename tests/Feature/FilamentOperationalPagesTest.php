@@ -13,6 +13,7 @@ use App\Models\OrderAllocation;
 use App\Models\ProductionSchedule;
 use App\Models\SalesOrder;
 use App\Models\SkuMaster;
+use App\Models\SkuWireRequirement;
 use App\Models\SteelForecast;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -155,6 +156,10 @@ class FilamentOperationalPagesTest extends TestCase
             'sku_code' => 'PIPE-WIRE-A',
             'wire_code' => 'WIRE-A',
             'wire_kg_per_pipe' => 100,
+        ]);
+        // A pipe's steel lives in sku_wire_requirements now, one row per gauge it consumes.
+        SkuWireRequirement::factory()->create([
+            'sku_master_id' => $sku->id, 'wire_code' => 'WIRE-A', 'kg_per_pipe' => 100,
         ]);
         ProductionSchedule::factory()->create([
             'depot_id' => $assignedDepot->id,

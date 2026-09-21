@@ -117,7 +117,11 @@ final class BomSync
             }
 
             if ($unit === 'M3') {
-                $volumeByProduct[$billCode] = ($volumeByProduct[$billCode] ?? 0) + $quantity;
+                $volumeByProduct[$billCode] ??= ['volume' => 0, 'mix' => null];
+                $volumeByProduct[$billCode]['volume'] += $quantity;
+                // Mixes differ in cement content, so the code is kept alongside the volume. A pipe
+                // batched from more than one mix keeps the largest, which is the one it is made of.
+                $volumeByProduct[$billCode]['mix'] ??= $componentCode;
             }
 
             // Labour and overhead recoveries share the tonnes unit but are not materials.
@@ -165,14 +169,17 @@ final class BomSync
 
     /**
      * @param  Collection<string, SkuMaster>  $skus
-     * @param  array<string, float>  $volumeByProduct
+     * @param  array<string, array{volume: float, mix: string|null}>  $volumeByProduct
      */
     private function writeVolumes(Collection $skus, array $volumeByProduct): SyncResult
     {
         $result = new SyncResult;
 
-        foreach ($volumeByProduct as $billCode => $volume) {
-            $skus->get($billCode)->forceFill(['concrete_volume_m3' => round($volume, 4)])->save();
+        foreach ($volumeByProduct as $billCode => $mix) {
+            $skus->get($billCode)->forceFill([
+                'concrete_volume_m3' => round($mix['volume'], 4),
+                'concrete_mix_code' => $mix['mix'],
+            ])->save();
 
             $result->count('concrete volumes');
         }

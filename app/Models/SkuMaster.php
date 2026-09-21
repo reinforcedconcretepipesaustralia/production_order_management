@@ -16,7 +16,8 @@ class SkuMaster extends Model
 
     protected $fillable = [
         'sku_code', 'erp_entity_code', 'description', 'diameter_mm', 'length_mm', 'unit_weight_tonnes',
-        'wire_code', 'wire_kg_per_pipe', 'concrete_volume_m3', 'standard_run_rate_per_hour',
+        'wire_code', 'wire_kg_per_pipe', 'concrete_volume_m3', 'concrete_mix_code',
+        'standard_run_rate_per_hour',
         'bom_reference', 'is_active', 'machine_preference', 'abc_class',
         'minimum_run_quantity', 'target_months_on_hand',
     ];

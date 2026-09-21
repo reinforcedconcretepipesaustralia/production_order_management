@@ -53,12 +53,17 @@ class ErpViews extends Page
         $reader = new RcpaViewReadService(new RcpaViewCatalog);
         $views = $reader->probeMappedViews();
         $selected = collect($views)->firstWhere('table', $this->selectedTable);
+        $setupRequired = ! collect($views)->contains(
+            fn (array $view): bool => $view['status'] === 'readable',
+        );
 
         return [
             'views' => $views,
             'preview' => ($selected['status'] ?? null) === 'readable'
                 ? $reader->previewMappedView($this->selectedTable)
                 : ['columns' => [], 'rows' => []],
+            'setupRequired' => $setupRequired,
+            'setupReason' => $setupRequired ? ($views[0]['reason'] ?? null) : null,
         ];
     }
 }

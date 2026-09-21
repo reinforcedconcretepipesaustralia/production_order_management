@@ -41,6 +41,19 @@ class RcpaSqlStatusCommand extends Command
 
         $reader->forgetConnectionFailure();
 
+        $unresolvedHost = RcpaSqlFailureClassifier::unresolvedHostReason(
+            (string) config('database.connections.rcpa_sql.host'),
+        );
+
+        if ($unresolvedHost !== null) {
+            $this->error('RCPA SQL connection: failed');
+            $this->line('SQLSTATE: unknown');
+            $this->line('Reason: '.$unresolvedHost);
+            $this->line('Connect to the corporate network or VPN, then retry.');
+
+            return self::FAILURE;
+        }
+
         try {
             Schema::connection('rcpa_sql')->getConnection()->getPdo();
         } catch (Throwable $exception) {

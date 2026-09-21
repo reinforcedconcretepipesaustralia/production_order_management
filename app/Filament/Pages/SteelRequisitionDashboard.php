@@ -115,22 +115,28 @@ class SteelRequisitionDashboard extends Page
             ->get()
             ->map(function (SteelForecast $forecast) use ($steelPlanningService): array {
                 $schedules = ProductionSchedule::query()
-                    ->with('sku')
+                    // Only this gauge's requirement, since a pipe consumes several.
+                    ->with(['sku.wireRequirements' => fn ($query) => $query->where('wire_code', $forecast->wire_code)])
                     ->where('depot_id', $forecast->depot_id)
+                    // Compared as instants, not 'Y-m-d' strings: schedule_date is a date cast, so its
+                    // midnight time sorts after a bare date and the window's last day drops out.
                     ->whereBetween('schedule_date', [
-                        $forecast->forecast_date->toDateString(),
-                        $forecast->forecast_date->copy()->addDays(13)->toDateString(),
+                        $forecast->forecast_date->copy()->startOfDay(),
+                        $forecast->forecast_date->copy()->addDays(13)->endOfDay(),
                     ])
                     ->whereNotIn('status', ['cancelled'])
-                    ->whereHas('sku', fn (Builder $query) => $query->where('wire_code', $forecast->wire_code))
+                    ->whereHas(
+                        'sku.wireRequirements',
+                        fn (Builder $query) => $query->where('wire_code', $forecast->wire_code),
+                    )
                     ->orderBy('schedule_date')
                     ->get();
 
                 $result = $steelPlanningService->calculate(
-                    $schedules->map(fn (ProductionSchedule $schedule): SteelDemandLine => new SteelDemandLine(
-                        depotId: $schedule->depot_id,
-                        sku: $schedule->sku,
-                        plannedQuantity: $schedule->planned_quantity,
+                    $schedules->flatMap(fn (ProductionSchedule $schedule): array => SteelDemandLine::forSku(
+                        $schedule->depot_id,
+                        $schedule->sku,
+                        (int) $schedule->planned_quantity,
                     )),
                     SteelStockPosition::fromForecast($forecast),
                 );

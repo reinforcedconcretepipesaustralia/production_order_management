@@ -13,6 +13,7 @@ use App\Models\ProductionSchedule;
 use App\Models\SalesOrder;
 use App\Models\Shift;
 use App\Models\SkuMaster;
+use App\Models\SkuWireRequirement;
 use App\Models\SteelForecast;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -247,6 +248,10 @@ class SchedulerCalculationsApiTest extends TestCase
             'wire_code' => 'WIRE-500L',
             'wire_kg_per_pipe' => '25.500',
         ]);
+        // A pipe's steel lives in sku_wire_requirements now, one row per gauge it consumes.
+        SkuWireRequirement::factory()->create([
+            'sku_master_id' => $sku->id, 'wire_code' => 'WIRE-500L', 'kg_per_pipe' => '25.500',
+        ]);
         $forecast = SteelForecast::factory()->for($depot)->create([
             'wire_code' => 'WIRE-500L',
             'on_hand_coils' => 12,
@@ -284,12 +289,19 @@ class SchedulerCalculationsApiTest extends TestCase
             ->assertForbidden();
     }
 
+    /**
+     * A pipe that does not use the forecast's gauge contributes none of it, but a request where no
+     * supplied product uses it at all is a mismatched pairing rather than an answer of zero.
+     */
     public function test_steel_calculation_returns_a_safe_wire_group_conflict(): void
     {
         $depot = Depot::factory()->create();
         $sku = SkuMaster::factory()->create([
             'wire_code' => 'WIRE-500L',
             'wire_kg_per_pipe' => '20.000',
+        ]);
+        SkuWireRequirement::factory()->create([
+            'sku_master_id' => $sku->id, 'wire_code' => 'WIRE-500L', 'kg_per_pipe' => '20.000',
         ]);
         $forecast = SteelForecast::factory()->for($depot)->create(['wire_code' => 'WIRE-500N']);
         $user = User::factory()->withAppRoles(AppRole::PlannerAdmin)->create();

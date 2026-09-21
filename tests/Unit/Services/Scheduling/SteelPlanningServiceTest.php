@@ -14,8 +14,8 @@ class SteelPlanningServiceTest extends TestCase
 {
     public function test_recommends_order_when_projection_is_below_two_week_average_safety_stock(): void
     {
-        $sku = new SkuMaster(['wire_code' => 'WIRE-500L', 'wire_kg_per_pipe' => '25.500']);
-        $line = new SteelDemandLine(1, $sku, 10);
+        $sku = new SkuMaster(['sku_code' => 'R0600-4']);
+        $line = new SteelDemandLine(1, $sku, 10, 'WIRE-500L', '25.500');
         $forecast = new SteelForecast([
             'depot_id' => 1,
             'wire_code' => 'WIRE-500L',
@@ -41,8 +41,8 @@ class SteelPlanningServiceTest extends TestCase
 
     public function test_returns_zero_recommendation_when_projection_meets_safety_stock(): void
     {
-        $sku = new SkuMaster(['wire_code' => 'WIRE-500N', 'wire_kg_per_pipe' => '20.000']);
-        $line = new SteelDemandLine(2, $sku, 5);
+        $sku = new SkuMaster(['sku_code' => 'R0600-4']);
+        $line = new SteelDemandLine(2, $sku, 5, 'WIRE-500N', '20.000');
         $stock = new SteelStockPosition(
             depotId: 2,
             wireCode: 'WIRE-500N',
@@ -58,10 +58,10 @@ class SteelPlanningServiceTest extends TestCase
         $this->assertSame('0.000000', $result->recommendedOrderTonnes);
     }
 
-    public function test_rejects_demand_when_sku_wire_code_differs_from_forecast_group(): void
+    public function test_rejects_demand_when_the_gauge_differs_from_the_forecast_group(): void
     {
-        $sku = new SkuMaster(['wire_code' => 'WIRE-500L', 'wire_kg_per_pipe' => '20.000']);
-        $line = new SteelDemandLine(2, $sku, 5);
+        $sku = new SkuMaster(['sku_code' => 'R0600-4']);
+        $line = new SteelDemandLine(2, $sku, 5, 'WIRE-500L', '20.000');
         $stock = new SteelStockPosition(
             depotId: 2,
             wireCode: 'WIRE-500N',
@@ -72,5 +72,38 @@ class SteelPlanningServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         (new SteelPlanningService)->calculate([$line], $stock);
+    }
+
+    /**
+     * A pipe consumes several gauges, ordered separately. The single wire_code column on sku_master
+     * only ever held one of them, understating every pipe with more than one gauge in its cage.
+     */
+    public function test_each_gauge_of_a_pipe_is_its_own_demand_line(): void
+    {
+        $sku = new SkuMaster(['sku_code' => 'R0600-4']);
+        $stock = new SteelStockPosition(
+            depotId: 1,
+            wireCode: 'WIREPL6.23',
+            onHandCoils: 0,
+            averageCoilWeightTonnes: '1.0000',
+            safetyThresholdCoils: 0,
+        );
+
+        $result = (new SteelPlanningService)->calculate(
+            [
+                new SteelDemandLine(1, $sku, 100, 'WIREPL6.23', '24.359'),
+                new SteelDemandLine(1, $sku, 100, 'WIREPL6.23', '4.387'),
+            ],
+            $stock,
+        );
+
+        $this->assertSame('2874.600', $result->requiredKg);
+    }
+
+    public function test_a_line_without_a_gauge_is_rejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new SteelDemandLine(1, new SkuMaster(['sku_code' => 'R0600-4']), 10, '', '5.000');
     }
 }

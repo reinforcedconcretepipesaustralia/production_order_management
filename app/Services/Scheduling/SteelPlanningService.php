@@ -22,7 +22,7 @@ final class SteelPlanningService
                 throw new InvalidArgumentException('Wire demand lines must match the stock depot and persisted SKU wire code group.');
             }
 
-            $requiredGrams += $line->plannedQuantity * $this->kilogramsToGrams($line->sku->wire_kg_per_pipe);
+            $requiredGrams += $line->plannedQuantity * $this->kilogramsToGrams($line->kgPerPipe);
         }
 
         $gramsPerCoil = $this->tonnesToGrams($stock->averageCoilWeightTonnes);

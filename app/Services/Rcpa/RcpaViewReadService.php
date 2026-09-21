@@ -453,9 +453,19 @@ final class RcpaViewReadService
             return 'RCPA_SQL_DATABASE or RCPA_SQL_USERNAME is empty. Fill the RCPA_SQL_* keys in .env.';
         }
 
+        $unresolvedHost = RcpaSqlFailureClassifier::unresolvedHostReason(
+            (string) config('database.connections.rcpa_sql.host'),
+        );
+
+        if ($unresolvedHost !== null) {
+            Cache::put(self::CONNECTION_FAILURE_CACHE_KEY, $unresolvedHost, self::CONNECTION_FAILURE_CACHE_SECONDS);
+
+            return $unresolvedHost;
+        }
+
         $cachedReason = Cache::get(self::CONNECTION_FAILURE_CACHE_KEY);
 
-        if (is_string($cachedReason)) {
+        if (is_string($cachedReason) && $cachedReason !== RcpaSqlFailureClassifier::UNRESOLVED_HOST) {
             return $cachedReason;
         }
 

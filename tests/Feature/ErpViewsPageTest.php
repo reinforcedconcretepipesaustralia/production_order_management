@@ -46,6 +46,27 @@ class ErpViewsPageTest extends TestCase
             ->assertDontSee('RCPA_SQL_PASSWORD');
     }
 
+    public function test_erp_views_page_shows_setup_steps_when_the_sql_host_cannot_be_resolved(): void
+    {
+        config([
+            'database.connections.rcpa_sql.host' => 'rcpa-sql-does-not-exist.invalid',
+            'database.connections.rcpa_sql.database' => 'TenciaRCP_TEST',
+            'database.connections.rcpa_sql.username' => 'reader',
+            'database.connections.rcpa_sql.password' => 'should-never-appear',
+        ]);
+        Cache::forget('rcpa_sql.connection_failure_reason');
+
+        $user = User::factory()->withAppRoles(AppRole::PlannerAdmin)->create();
+
+        $this->actingAs($user)
+            ->get(ErpViews::getUrl())
+            ->assertOk()
+            ->assertSee('could not be resolved')
+            ->assertSee('Connect the corporate VPN or office Ethernet')
+            ->assertSee('php artisan rcpa:pull-views')
+            ->assertDontSee('should-never-appear');
+    }
+
     public function test_retrying_the_connection_clears_the_cached_handshake_failure(): void
     {
         $user = User::factory()->withAppRoles(AppRole::PlannerAdmin)->create();

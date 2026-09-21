@@ -36,4 +36,23 @@ class RcpaSqlStatusCommandTest extends TestCase
             ->doesntExpectOutputToContain('should-never-appear')
             ->assertFailed();
     }
+
+    public function test_status_command_fails_immediately_when_the_sql_host_cannot_be_resolved(): void
+    {
+        if (! extension_loaded('pdo_sqlsrv')) {
+            $this->markTestSkipped('pdo_sqlsrv is required for this diagnostic path.');
+        }
+
+        config([
+            'database.connections.rcpa_sql.host' => 'rcpa-sql-does-not-exist.invalid',
+            'database.connections.rcpa_sql.database' => 'TenciaRCP_TEST',
+            'database.connections.rcpa_sql.username' => 'reader',
+            'database.connections.rcpa_sql.password' => 'should-never-appear',
+        ]);
+
+        $this->artisan('rcpa:sql-status')
+            ->expectsOutputToContain('The SQL Server host could not be resolved')
+            ->doesntExpectOutputToContain('should-never-appear')
+            ->assertFailed();
+    }
 }
