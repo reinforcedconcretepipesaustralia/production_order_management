@@ -14,18 +14,32 @@ sales but has **no BOM and no production**, which confirms it makes nothing.
 
 ## Two databases, not one
 
-The consolidated `TenciaRCP_View` is preferred, but pipe stock on hand is not in it. That gap
-forces a per-state fallback to `TenciaRCP_VIC` / `_NSW` / `_QLD` / `_SA`, which the same login can read:
+The consolidated `TenciaRCP_View` is preferred, but two gaps force a per-state fallback to
+`TenciaRCP_VIC` / `_NSW` / `_QLD` / `_SA`, which the same login can read:
 
 | Gap | Why the view fails | Fallback |
 |---|---|---|
 | Pipe stock on hand | `vwSTOCK_ON_HAND` holds only categories `?G` (rings, sandbands, caps) and `?H` (seconds) — 142 rows, **no pipes** | `STK_LOCN_MASTER` |
+| Order book | `vwSALES_ORDERS` reads `dbo.TRANS_LINES` in each state database, and cross-database ownership chaining does not apply, so the read-only login is denied | `SOR_LINES` + `SOR_MASTER` |
 
 Raise a widened `vwSTOCK_ON_HAND` with the view owner so stock can join the consolidated database.
 Until then `sync:stock` is written against the per-state fallback.
 
-The **future order book** is always `dbo.vwSALES_ORDERS` (`VwSALESORDERSView`). **Invoiced** pipes
+The **future order book** is `dbo.vwSALES_ORDERS` (`VwSALESORDERSView`). **Invoiced** pipes
 and credit notes are `dbo.vwSALES` (`VwSALESView`, `DRINV` / `DRCDT`) and are not the order book.
+
+`SELECT` on the view itself is already granted — `HAS_PERMS_BY_NAME('dbo.vwSALES_ORDERS','OBJECT','SELECT')`
+returns 1 — but reading it fails with *the SELECT permission was denied on the object 'TRANS_LINES'*.
+The login has no `SELECT` on `TRANS_LINES` or `TRANS_HEADERS` in any state database, and does have
+it on `SOR_LINES` and `SOR_MASTER`. The DBA fix, run in each of the four state databases:
+
+```sql
+GRANT SELECT ON dbo.TRANS_LINES TO tenciarcpa;
+GRANT SELECT ON dbo.TRANS_HEADERS TO tenciarcpa;
+```
+
+`TenciaSource::openSalesOrderLines()` uses the view the moment it answers a read and the per-state
+tables until then, so the grant needs no code change.
 
 Quotes are out of this model; `vwQUOTES` is not mapped.
 
@@ -65,11 +79,16 @@ The 6.00 mm gauge is `WIREDE6.00`, not `WIREPL6.00` as the plan assumed, and onl
 
 ### `sync:orders` → `sales_orders`
 
-`dbo.vwSALES_ORDERS`. Filter `TRANS_TYPE = 'DRSOR'`, `STATUS_FLAG NOT IN ('C','S','X')`,
-`LINE_STATUS <> 'C'`, `BACKORDER_QTY > 0`.
+`dbo.vwSALES_ORDERS` when readable, otherwise `SOR_LINES` joined `SOR_MASTER` on
+`(REFERENCE_NBR, REFERENCE_DUPLICATE, TRANS_TYPE)` per state database. Either way the filter is
+`TRANS_TYPE = 'DRSOR'`, `STATUS_FLAG NOT IN ('C','S','X')`, `LINE_STATUS <> 'C'`,
+`BACKORDER_QTY > 0`.
 
 `UNIQUE_ID` is the natural key. `BACKORDER_QTY` is the quantity still to make. `LINE_DELIVERY_DATE`
-is the line's due date and is what the priority rule ranks on — prefer it over the header's.
+is the line's due date and is what the priority rule ranks on — prefer it over the header's; the
+per-state fallback aliases `SOR_LINES.DELIVERY_DATE` to that name.
+
+Live through the fallback on 22 September 2026: VIC 2,517 open lines, NSW 1,607, QLD 2,262, SA 115.
 
 This is not invoiced history. Completed invoices and credits are `sync:sales-history` from
 `dbo.vwSALES`.

@@ -136,6 +136,64 @@ class OrderSyncTest extends TestCase
         $this->assertSame(['OPEN'], SalesOrder::query()->pluck('erp_order_reference')->all());
     }
 
+    /**
+     * The read-only login is denied SELECT on the state tables dbo.vwSALES_ORDERS reads, so until
+     * a DBA grants it the order book has to come from SOR_LINES and SOR_MASTER instead. The same
+     * lines must import, filtered the same way.
+     */
+    public function test_the_order_book_falls_back_to_the_state_tables_when_the_view_cannot_be_read(): void
+    {
+        $sku = $this->sku('RCPVIC', 'R0600-4');
+
+        $this->tencia
+            ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 173079, 'REFERENCE_NBR' => 'OPEN', 'LINE_NBR' => 33,
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
+                'BACKORDER_QTY' => 648, 'DELIVERY_DATE' => '2026-12-01 00:00:00',
+                'CUSTOMER_CODE' => '1008',
+            ], ['ORDER_DATE' => '2026-09-01 00:00:00', 'DELIVERY_NAME' => 'LOGCIT'])
+            ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 2, 'REFERENCE_NBR' => 'SUSPENDED-HEADER',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
+            ], ['STATUS_FLAG' => 'S'])
+            ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 3, 'REFERENCE_NBR' => 'CANCELLED-LINE',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'LINE_STATUS' => 'C',
+            ])
+            ->denyConsolidatedOrderBook();
+
+        app(OrderSync::class)->sync();
+
+        $order = SalesOrder::query()->sole();
+
+        $this->assertSame('OPEN', $order->erp_order_reference);
+        $this->assertSame('173079', $order->erp_line_reference);
+        $this->assertSame(648, $order->ordered_quantity);
+        $this->assertSame('2026-12-01', $order->requested_delivery_date->toDateString());
+        $this->assertSame('LOGCIT', $order->customer_name);
+        $this->assertSame($this->melton->id, $order->depot_id);
+        $this->assertSame($sku->id, $order->sku_master_id);
+    }
+
+    public function test_the_view_is_preferred_while_it_can_still_be_read(): void
+    {
+        $this->sku('RCPVIC', 'R0600-4');
+
+        $this->tencia
+            ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 1, 'REFERENCE_NBR' => 'FROM-VIEW',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
+            ])
+            ->addOrderLineToStateTablesOnly('RCPVIC', [
+                'REFERENCE_NBR' => 'STATE-ONLY',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
+            ]);
+
+        app(OrderSync::class)->sync();
+
+        $this->assertSame(['FROM-VIEW'], SalesOrder::query()->pluck('erp_order_reference')->all());
+    }
+
     public function test_invoiced_sales_are_not_imported_as_the_order_book(): void
     {
         $this->sku('RCPVIC', 'R0600-4');

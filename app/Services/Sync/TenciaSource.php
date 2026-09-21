@@ -8,13 +8,15 @@ use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Where each question about Tencia is actually answered.
  *
  * The consolidated TenciaRCP_View is preferred. vwSTOCK_ON_HAND carries only rings and
  * seconds — no pipes — so stock falls back to the per-state databases, which the same login can
- * read. The future order book is always dbo.vwSALES_ORDERS. Invoiced history is dbo.vwSALES.
+ * read. The future order book is dbo.vwSALES_ORDERS, with the same fallback until the read-only
+ * login is granted SELECT on the state tables that view reads. Invoiced history is dbo.vwSALES.
  * docs/erp/contract.md records why for each import.
  *
  * Everything here is read-only. The rcpa_sql connection refuses writes at the driver level.
@@ -32,6 +34,8 @@ class TenciaSource
     /** Western Australia is closing and is not planned. */
     public const EXCLUDED_ENTITIES = ['RCPWA'];
 
+    private ?bool $consolidatedOrderBookReadable = null;
+
     /**
      * A consolidated view in TenciaRCP_View.
      */
@@ -41,13 +45,44 @@ class TenciaSource
     }
 
     /**
-     * Open sales-order lines for one entity from dbo.vwSALES_ORDERS.
+     * Open sales-order lines for one entity: the future order book.
      *
-     * This is the future order book. Invoiced pipes are dbo.vwSALES and are not read here.
-     * Headers with STATUS_FLAG in C, S, or X, cancelled lines, and lines with nothing left
-     * to make are excluded.
+     * Invoiced pipes are dbo.vwSALES and are not read here. Headers with STATUS_FLAG in C, S,
+     * or X, cancelled lines, and lines with nothing left to make are excluded either way.
+     *
+     * dbo.vwSALES_ORDERS is the source whenever it can be read. It reads TRANS_LINES in each
+     * state database, and cross-database ownership chaining does not apply, so the read-only
+     * login is denied until a DBA grants SELECT on those tables. Until then the same order book
+     * is assembled from SOR_LINES and SOR_MASTER, which the login can read.
      */
     public function openSalesOrderLines(string $entityCode): Builder
+    {
+        return $this->consolidatedOrderBookIsReadable()
+            ? $this->orderBookFromConsolidatedView($entityCode)
+            : $this->orderBookFromStateTables($entityCode);
+    }
+
+    /**
+     * Whether dbo.vwSALES_ORDERS answers a read, checked once per instance because the answer
+     * only changes when a DBA grants the missing permission.
+     */
+    public function consolidatedOrderBookIsReadable(): bool
+    {
+        return $this->consolidatedOrderBookReadable ??= $this->probeConsolidatedOrderBook();
+    }
+
+    private function probeConsolidatedOrderBook(): bool
+    {
+        try {
+            $this->view('vwSALES_ORDERS')->selectRaw('1')->limit(1)->get();
+        } catch (Throwable) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function orderBookFromConsolidatedView(string $entityCode): Builder
     {
         return $this->view('vwSALES_ORDERS')
             ->where('ENTITY', $entityCode)
@@ -56,6 +91,34 @@ class TenciaSource
             ->where('LINE_STATUS', '<>', 'C')
             ->where('BACKORDER_QTY', '>', 0)
             ->orderBy('LINE_DELIVERY_DATE');
+    }
+
+    /**
+     * The same order book from one state's own database, shaped like the consolidated view so
+     * callers cannot tell which source answered.
+     */
+    private function orderBookFromStateTables(string $entityCode): Builder
+    {
+        return $this->stateTable($entityCode, 'SOR_LINES', 'l')
+            ->join(
+                DB::raw($this->stateTableName($entityCode, 'SOR_MASTER').' AS m'),
+                function ($join) {
+                    $join->on('m.REFERENCE_NBR', '=', 'l.REFERENCE_NBR')
+                        ->on('m.REFERENCE_DUPLICATE', '=', 'l.REFERENCE_DUPLICATE')
+                        ->on('m.TRANS_TYPE', '=', 'l.TRANS_TYPE');
+                },
+            )
+            ->where('m.TRANS_TYPE', 'DRSOR')
+            ->whereNotIn('m.STATUS_FLAG', VwSALESORDERSView::EXCLUDED_HEADER_STATUS_FLAGS)
+            ->where('l.LINE_STATUS', '<>', 'C')
+            ->where('l.BACKORDER_QTY', '>', 0)
+            ->orderBy('l.DELIVERY_DATE')
+            ->select([
+                'l.UNIQUE_ID', 'l.REFERENCE_NBR', 'l.LINE_NBR', 'l.STOCK_CODE', 'l.STOCK_LOCATION',
+                'l.DESCRIPTION', 'l.BACKORDER_QTY', 'l.ALLOCATED_QTY', 'l.CUSTOMER_CODE',
+                'm.ORDER_DATE', 'm.DELIVERY_NAME', 'm.DELIVERY_NOTE_1',
+                DB::raw('l.DELIVERY_DATE AS LINE_DELIVERY_DATE'),
+            ]);
     }
 
     /**

@@ -117,6 +117,32 @@ class FakeTenciaSource extends TenciaSource
         });
 
         foreach (['RCPVIC', 'RCPNSW', 'RCPQLD', 'RCPSA'] as $entity) {
+            Schema::create($this->stateTableName($entity, 'SOR_LINES'), function (Blueprint $table) {
+                $table->integer('UNIQUE_ID');
+                $table->string('TRANS_TYPE')->default('DRSOR');
+                $table->string('REFERENCE_NBR');
+                $table->integer('REFERENCE_DUPLICATE')->default(0);
+                $table->integer('LINE_NBR')->default(1);
+                $table->string('STOCK_CODE');
+                $table->string('STOCK_LOCATION')->nullable();
+                $table->string('DESCRIPTION')->nullable();
+                $table->decimal('BACKORDER_QTY', 18, 6)->default(0);
+                $table->decimal('ALLOCATED_QTY', 18, 6)->default(0);
+                $table->dateTime('DELIVERY_DATE')->nullable();
+                $table->string('CUSTOMER_CODE')->nullable();
+                $table->string('LINE_STATUS')->nullable();
+            });
+
+            Schema::create($this->stateTableName($entity, 'SOR_MASTER'), function (Blueprint $table) {
+                $table->string('TRANS_TYPE')->default('DRSOR');
+                $table->string('REFERENCE_NBR');
+                $table->integer('REFERENCE_DUPLICATE')->default(0);
+                $table->dateTime('ORDER_DATE')->nullable();
+                $table->string('STATUS_FLAG')->nullable();
+                $table->string('DELIVERY_NAME')->nullable();
+                $table->string('DELIVERY_NOTE_1')->nullable();
+            });
+
             Schema::create($this->stateTableName($entity, 'STK_LOCN_MASTER'), function (Blueprint $table) {
                 $table->string('STOCK_CODE');
                 $table->string('STOCK_LOCATION');
@@ -185,7 +211,8 @@ class FakeTenciaSource extends TenciaSource
     }
 
     /**
-     * An open order line on dbo.vwSALES_ORDERS.
+     * An open order line, written to both order-book sources so a scenario reads the same
+     * whether it is answered by dbo.vwSALES_ORDERS or by the per-state SOR tables.
      *
      * @param  array<string, mixed>  $line
      * @param  array<string, mixed>  $header
@@ -215,9 +242,87 @@ class FakeTenciaSource extends TenciaSource
             ?? $attributes['LINE_DELIVERY_DATE'];
         unset($attributes['DELIVERY_DATE']);
 
-        DB::table('vwSALES_ORDERS')->insert($attributes);
+        if (Schema::hasTable('vwSALES_ORDERS')) {
+            DB::table('vwSALES_ORDERS')->insert($attributes);
+        }
+
+        $this->addStateOrderLine($entity, $attributes);
 
         return $this;
+    }
+
+    /**
+     * A line only the per-state SOR tables know about, so a test can tell which source answered.
+     *
+     * @param  array<string, mixed>  $line
+     */
+    public function addOrderLineToStateTablesOnly(string $entity, array $line): self
+    {
+        $this->addStateOrderLine($entity, array_merge([
+            'TRANS_TYPE' => 'DRSOR',
+            'UNIQUE_ID' => 9000 + DB::table($this->stateTableName($entity, 'SOR_LINES'))->count(),
+            'REFERENCE_NBR' => 'STATE-ONLY',
+            'LINE_NBR' => 1,
+            'LINE_STATUS' => 'O',
+            'STATUS_FLAG' => 'O',
+            'BACKORDER_QTY' => 10,
+            'LINE_DELIVERY_DATE' => '2026-12-01 00:00:00',
+            'ORDER_DATE' => '2026-09-01 00:00:00',
+            'DELIVERY_NAME' => 'A customer',
+            'DELIVERY_NOTE_1' => 'A site',
+        ], $line));
+
+        return $this;
+    }
+
+    /**
+     * Take dbo.vwSALES_ORDERS away, the way the server does when the read-only login is denied
+     * SELECT on the state tables behind it.
+     */
+    public function denyConsolidatedOrderBook(): self
+    {
+        Schema::drop('vwSALES_ORDERS');
+
+        return $this;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes  A line already shaped like the consolidated view.
+     */
+    private function addStateOrderLine(string $entity, array $attributes): void
+    {
+        $lines = DB::table($this->stateTableName($entity, 'SOR_LINES'));
+        $headers = DB::table($this->stateTableName($entity, 'SOR_MASTER'));
+
+        $lines->insert([
+            'UNIQUE_ID' => $attributes['UNIQUE_ID'],
+            'TRANS_TYPE' => $attributes['TRANS_TYPE'],
+            'REFERENCE_NBR' => $attributes['REFERENCE_NBR'],
+            'REFERENCE_DUPLICATE' => 0,
+            'LINE_NBR' => $attributes['LINE_NBR'],
+            'STOCK_CODE' => $attributes['STOCK_CODE'],
+            'STOCK_LOCATION' => $attributes['STOCK_LOCATION'] ?? null,
+            'DESCRIPTION' => $attributes['DESCRIPTION'] ?? null,
+            'BACKORDER_QTY' => $attributes['BACKORDER_QTY'],
+            'ALLOCATED_QTY' => $attributes['ALLOCATED_QTY'] ?? 0,
+            'DELIVERY_DATE' => $attributes['LINE_DELIVERY_DATE'],
+            'CUSTOMER_CODE' => $attributes['CUSTOMER_CODE'] ?? null,
+            'LINE_STATUS' => $attributes['LINE_STATUS'],
+        ]);
+
+        if ($headers->where('REFERENCE_NBR', $attributes['REFERENCE_NBR'])->exists()) {
+            return;
+        }
+
+        $headers->insert([
+            'TRANS_TYPE' => $attributes['TRANS_TYPE'],
+            'REFERENCE_NBR' => $attributes['REFERENCE_NBR'],
+            'REFERENCE_DUPLICATE' => 0,
+            'ORDER_DATE' => $attributes['ORDER_DATE'],
+            'STATUS_FLAG' => $attributes['STATUS_FLAG'],
+            'DELIVERY_NAME' => $attributes['DELIVERY_NAME'],
+            'DELIVERY_NOTE_1' => $attributes['DELIVERY_NOTE_1'],
+        ]);
     }
 
     /**
