@@ -29,6 +29,12 @@ class DepotResource extends Resource
 
     protected static ?string $navigationLabel = 'Plants';
 
+    protected static ?string $breadcrumb = 'Plants';
+
+    protected static ?string $modelLabel = 'plant';
+
+    protected static ?string $pluralModelLabel = 'plants';
+
     protected static ?string $recordTitleAttribute = 'name';
 
     protected static ?int $navigationSort = 1;

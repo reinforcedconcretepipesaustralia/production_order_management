@@ -61,6 +61,32 @@ class PlantConfigurationResourcesTest extends TestCase
         $this->get($resource::getUrl('index'))->assertSuccessful();
     }
 
+    public function test_plants_list_heading_reads_plants_not_depots(): void
+    {
+        $this->actingAs($this->userWithRoles(AppRole::PlannerAdmin));
+
+        $html = $this->get(DepotResource::getUrl('index'))
+            ->assertSuccessful()
+            ->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/<h1 class="fi-header-heading">\s*Plants\s*<\/h1>/',
+            $html,
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/<h1 class="fi-header-heading">\s*Depots\s*<\/h1>/',
+            $html,
+        );
+        $this->assertMatchesRegularExpression(
+            '/<a[^>]*class="fi-breadcrumbs-item-label"[^>]*>\s*Plants\s*<\/a>/',
+            $html,
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/<a[^>]*class="fi-breadcrumbs-item-label"[^>]*>\s*Depots\s*<\/a>/',
+            $html,
+        );
+    }
+
     /**
      * Mounting the create page builds the whole form schema, so this catches a misused
      * component before it reaches a planner.
