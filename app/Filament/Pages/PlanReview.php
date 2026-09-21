@@ -52,7 +52,20 @@ class PlanReview extends Page
 
     public function mount(): void
     {
-        $this->planRunId = $this->selectableRuns()->keys()->first();
+        $this->planRunId = $this->defaultRunId();
+    }
+
+    /**
+     * The newest plan still worth looking at. A discarded run is only selected when there is nothing
+     * else, so a planner does not land on a plan somebody already threw away.
+     */
+    private function defaultRunId(): ?int
+    {
+        return PlanRun::query()
+            ->whereNot('status', PlanRun::STATUS_DISCARDED)
+            ->latest('id')
+            ->value('id')
+            ?? PlanRun::query()->latest('id')->value('id');
     }
 
     /**
@@ -229,7 +242,7 @@ class PlanReview extends Page
 
         Notification::make()->success()->title('Plan discarded.')->send();
 
-        $this->planRunId = $this->selectableRuns()->keys()->first();
+        $this->planRunId = $this->defaultRunId();
     }
 
     public function planRun(): ?PlanRun
@@ -248,7 +261,21 @@ class PlanReview extends Page
 
         return ProductionSchedule::query()
             ->with(['depot', 'machine', 'shift', 'sku'])
-            ->where('plan_run_id', $run->id)
+            // The run's own lines, plus the lines a planner kept from an earlier run. Regeneration
+            // carries those through and plans around them, so they are committed work — a review
+            // that hid them would approve a plan the floor is not actually running.
+            ->where(fn (Builder $query) => $query
+                ->where('plan_run_id', $run->id)
+                ->orWhere(fn (Builder $carried) => $carried
+                    ->whereIn('depot_id', $run->depot_ids ?? [])
+                    ->whereBetween('schedule_date', [
+                        $run->horizon_from->startOfDay(),
+                        $run->horizon_to->endOfDay(),
+                    ])
+                    ->where(fn (Builder $kept) => $kept
+                        ->where('origin', ProductionSchedule::ORIGIN_MANUAL)
+                        ->orWhere('is_locked', true))
+                    ->whereNot('status', 'cancelled')))
             ->when($accessible !== null, fn (Builder $query) => $query->whereIn('depot_id', $accessible))
             ->when($this->depotId !== null, fn (Builder $query) => $query->where('depot_id', $this->depotId))
             ->orderBy('depot_id')

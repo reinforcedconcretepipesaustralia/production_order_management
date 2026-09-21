@@ -174,6 +174,72 @@ class PlanReviewPageTest extends TestCase
             ->assertNotified('That line is not in this plan, or not at a plant you can see.');
     }
 
+    /**
+     * Regeneration carries a planner's own lines through from the previous run and plans around
+     * them, so they are committed work. A review that showed only the newest run's lines would
+     * approve a plan the floor is not actually running.
+     */
+    public function test_a_line_kept_from_an_earlier_run_is_shown_and_approved_with_this_one(): void
+    {
+        $earlier = PlanRun::factory()->create(['status' => PlanRun::STATUS_DRAFT]);
+
+        $carried = ProductionSchedule::factory()->create([
+            'plan_run_id' => $earlier->id,
+            'depot_id' => $this->depot->id,
+            'sku_master_id' => SkuMaster::factory()->create(['sku_code' => 'KEPT-BY-PLANNER'])->id,
+            'schedule_date' => $this->run->horizon_from->addDay(),
+            'origin' => ProductionSchedule::ORIGIN_MANUAL,
+        ]);
+
+        $this->line('R0600-4', 340);
+
+        Livewire::actingAs($this->planner())
+            ->test(PlanReview::class)
+            ->set('planRunId', $this->run->id)
+            ->assertSee('KEPT-BY-PLANNER')
+            ->call('approve')
+            ->assertHasNoErrors();
+
+        $this->assertTrue($carried->fresh()->is_locked, 'Approval commits the carried line too.');
+    }
+
+    public function test_a_cancelled_line_from_a_discarded_run_is_not_carried_in(): void
+    {
+        $discarded = PlanRun::factory()->create(['status' => PlanRun::STATUS_DISCARDED]);
+
+        ProductionSchedule::factory()->create([
+            'plan_run_id' => $discarded->id,
+            'depot_id' => $this->depot->id,
+            'sku_master_id' => SkuMaster::factory()->create(['sku_code' => 'THROWN-AWAY'])->id,
+            'schedule_date' => $this->run->horizon_from->addDay(),
+            'origin' => ProductionSchedule::ORIGIN_MANUAL,
+            'status' => 'cancelled',
+        ]);
+
+        $this->line('R0600-4', 340);
+
+        Livewire::actingAs($this->planner())
+            ->test(PlanReview::class)
+            ->set('planRunId', $this->run->id)
+            ->assertDontSee('THROWN-AWAY');
+    }
+
+    /**
+     * Landing a planner on a plan somebody already threw away wastes their time and risks them
+     * working to it.
+     */
+    public function test_the_page_opens_on_the_newest_plan_that_was_not_discarded(): void
+    {
+        $this->line('R0600-4', 340);
+
+        $discarded = PlanRun::factory()->create(['status' => PlanRun::STATUS_DISCARDED]);
+
+        Livewire::actingAs($this->planner())
+            ->test(PlanReview::class)
+            ->assertSet('planRunId', $this->run->id)
+            ->assertNotSet('planRunId', $discarded->id);
+    }
+
     public function test_the_page_says_so_when_no_plan_has_been_generated(): void
     {
         PlanRun::query()->delete();

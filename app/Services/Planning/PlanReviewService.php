@@ -110,8 +110,19 @@ final class PlanReviewService
         }
 
         DB::transaction(function () use ($run, $user): void {
+            // The run's own lines and the ones carried over from an earlier run: both are work the
+            // floor will do, so approval commits both.
             ProductionSchedule::query()
-                ->where('plan_run_id', $run->id)
+                ->where(fn ($query) => $query
+                    ->where('plan_run_id', $run->id)
+                    ->orWhere(fn ($carried) => $carried
+                        ->whereIn('depot_id', $run->depot_ids ?? [])
+                        ->whereBetween('schedule_date', [
+                            $run->horizon_from->startOfDay(),
+                            $run->horizon_to->endOfDay(),
+                        ])
+                        ->where('origin', ProductionSchedule::ORIGIN_MANUAL)
+                        ->whereNot('status', 'cancelled')))
                 ->update(['is_locked' => true, 'status' => 'scheduled']);
 
             $run->update([
