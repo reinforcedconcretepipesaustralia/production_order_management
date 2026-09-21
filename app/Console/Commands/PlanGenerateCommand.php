@@ -3,7 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Models\Depot;
+use App\Models\PlanRun;
 use App\Services\Planning\PlanGenerator;
+use App\Services\Planning\PlanNarrator;
 use App\Services\Planning\PlanRequest;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -19,7 +21,8 @@ class PlanGenerateCommand extends Command
         {--months-cover=1.0 : Months of stock held for a fast mover with no target of its own.}
         {--minimum-run=0.25 : Smallest share of a shift worth starting a new product for.}
         {--max-runs=2 : Products a machine may be set up for in one shift.}
-        {--orders-only : Plan order-backed work only, with no safety stock.}';
+        {--orders-only : Plan order-backed work only, with no safety stock.}
+        {--narrate : Also write a plain-English explanation of the plan.}';
 
     protected $description = 'Generate a production plan across the plants';
 
@@ -73,7 +76,36 @@ class PlanGenerateCommand extends Command
             $this->components->info('Every order in the horizon is covered.');
         }
 
+        if ($this->option('narrate')) {
+            $this->explain($run);
+        }
+
         return self::SUCCESS;
+    }
+
+    /**
+     * Written after the plan is reported, and never allowed to fail the run: the narrative is
+     * advisory text and the plan stands without it.
+     */
+    private function explain(PlanRun $run): void
+    {
+        if (blank(config('claude.api_key'))) {
+            $this->components->warn('ANTHROPIC_API_KEY is not set, so no narrative was written.');
+
+            return;
+        }
+
+        $narrative = app(PlanNarrator::class)->narrate($run);
+
+        if ($narrative === null) {
+            $this->components->warn('Could not write a narrative. The plan is unaffected.');
+
+            return;
+        }
+
+        $this->newLine();
+        $this->line($narrative);
+        $this->newLine();
     }
 
     /**
