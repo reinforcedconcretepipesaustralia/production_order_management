@@ -3,9 +3,11 @@
 namespace Tests\Feature;
 
 use App\Enums\AppRole;
+use App\Filament\Pages\AlternateProductionBoard;
 use App\Filament\Pages\LogisticsLoadBuilder;
 use App\Filament\Pages\ProductionBoard;
 use App\Filament\Pages\SteelRequisitionDashboard;
+use App\Filament\Widgets\ProductionScheduleCalendar;
 use App\Models\Depot;
 use App\Models\DispatchLoad;
 use App\Models\InventorySoh;
@@ -41,6 +43,7 @@ class FilamentOperationalPagesTest extends TestCase
     {
         return [
             'production board' => [ProductionBoard::class],
+            'Guava production board' => [AlternateProductionBoard::class],
             'steel requisitions' => [SteelRequisitionDashboard::class],
             'load builder' => [LogisticsLoadBuilder::class],
         ];
@@ -71,6 +74,10 @@ class FilamentOperationalPagesTest extends TestCase
             ->assertSee('ERP production demand')
             ->assertSee('ERP SKU master')
             ->assertDontSee('RCPA_SQL_PASSWORD');
+        $this->get(AlternateProductionBoard::getUrl())
+            ->assertOk()
+            ->assertSee('Guava schedule timeline')
+            ->assertSee('view-only while we compare both approaches');
         $this->get(SteelRequisitionDashboard::getUrl())
             ->assertOk()
             ->assertSee('ERP stock on hand')
@@ -117,6 +124,54 @@ class FilamentOperationalPagesTest extends TestCase
             ->assertDontSee('HIDDEN-SKU')
             ->set('status', 'draft')
             ->assertSee('No production schedules found');
+    }
+
+    public function test_guava_board_maps_only_accessible_schedules_and_machines(): void
+    {
+        $assignedDepot = Depot::factory()->create(['code' => 'ASSIGNED']);
+        $otherDepot = Depot::factory()->create(['code' => 'OTHER']);
+        $operator = User::factory()->withAppRoles(AppRole::DepotOperator)->create();
+        $operator->depots()->attach($assignedDepot);
+        $visibleSku = SkuMaster::factory()->create(['sku_code' => 'VISIBLE-SKU']);
+        $hiddenSku = SkuMaster::factory()->create(['sku_code' => 'HIDDEN-SKU']);
+        $start = CarbonImmutable::parse('2026-09-21 06:00:00');
+
+        $visibleSchedule = ProductionSchedule::factory()->create([
+            'depot_id' => $assignedDepot->id,
+            'sku_master_id' => $visibleSku->id,
+            'planned_start_at' => $start,
+            'planned_end_at' => $start->addHours(8),
+            'planned_quantity' => 42,
+            'planned_oee_percent' => 85,
+            'status' => 'scheduled',
+        ]);
+        ProductionSchedule::factory()->create([
+            'depot_id' => $otherDepot->id,
+            'sku_master_id' => $hiddenSku->id,
+            'planned_start_at' => $start,
+            'planned_end_at' => $start->addHours(8),
+            'status' => 'scheduled',
+        ]);
+
+        $this->actingAs($operator);
+
+        $calendar = app(ProductionScheduleCalendar::class);
+        $resources = $calendar->getResourcesJs();
+        $events = $calendar->getEventsJs([
+            'startStr' => $start->startOfWeek()->toIso8601String(),
+            'endStr' => $start->endOfWeek()->addSecond()->toIso8601String(),
+            'tzOffset' => 0,
+        ]);
+
+        $this->assertCount(1, $resources);
+        $this->assertSame($visibleSchedule->machine_asset_id, $resources[0]['id']);
+        $this->assertStringStartsWith('ASSIGNED — ', $resources[0]['title']);
+        $this->assertCount(1, $events);
+        $this->assertSame('VISIBLE-SKU · 42 pipes · OEE 85% · Scheduled', $events[0]['title']);
+        $this->assertSame([$visibleSchedule->machine_asset_id], $events[0]['resourceIds']);
+        $this->assertSame('#002F67', $events[0]['backgroundColor']);
+        $this->assertFalse($events[0]['startEditable']);
+        $this->assertFalse($events[0]['durationEditable']);
     }
 
     /**
