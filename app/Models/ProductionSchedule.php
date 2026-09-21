@@ -32,7 +32,7 @@ class ProductionSchedule extends Model
         'depot_id', 'shift_id', 'machine_asset_id', 'sku_master_id', 'mould_asset_id',
         'schedule_date', 'planned_start_at', 'planned_end_at', 'planned_quantity',
         'planned_oee_percent', 'effective_hours', 'status', 'changeover_minutes',
-        'changeover_from_sku_code', 'changeover_notes', 'shift_fraction', 'origin',
+        'changeover_from_sku_code', 'changeover_notes', 'planner_notes', 'shift_fraction', 'origin',
         'reason_code', 'reason_context', 'is_locked', 'priority', 'is_steamed',
     ];
 

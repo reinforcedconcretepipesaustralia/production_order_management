@@ -2,7 +2,7 @@
     <x-filament::section>
         <x-slot name="heading">RCPA SQL views</x-slot>
         <x-slot name="description">
-            Read-only Eloquent access to RCP-AUS-SQL01. Store `RCPA_SQL_*` values only in local `.env`. If status is unreadable, join the corporate network or VPN and retry.
+            Read-only Eloquent access to RCP-AUS-SQL01. Store `RCPA_SQL_*` values only in local `.env`.
         </x-slot>
 
         <x-slot name="headerEnd">
@@ -10,6 +10,19 @@
                 Retry connection
             </x-filament::button>
         </x-slot>
+
+        @if ($setupRequired)
+            <div class="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                @if ($setupReason)
+                    <p class="font-medium">{{ $setupReason }}</p>
+                @endif
+                <ol class="mt-2 list-decimal space-y-1 pl-5">
+                    <li>Keep usernames, passwords, and connection URLs in local `.env` only (`RCPA_SQL_*` keys from `.env.example`).</li>
+                    <li>Connect the corporate VPN or office Ethernet so `RCP-AUS-SQL01` resolves in DNS.</li>
+                    <li>Click Retry connection, or run `php artisan rcpa:sql-status --views` then `php artisan rcpa:pull-views`.</li>
+                </ol>
+            </div>
+        @endif
 
         <div class="overflow-x-auto">
             <table class="w-full text-left text-sm">
