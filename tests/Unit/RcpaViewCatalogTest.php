@@ -3,7 +3,12 @@
 namespace Tests\Unit;
 
 use App\Models\Rcpa\ReadOnlyView;
+use App\Models\Rcpa\VwBOMLINESView;
 use App\Models\Rcpa\VwProductionView;
+use App\Models\Rcpa\VwSALESORDERSView;
+use App\Models\Rcpa\VwSALESView;
+use App\Models\Rcpa\VwSTKMASTERView;
+use App\Models\Rcpa\VwSTOCKONHANDView;
 use App\Support\Rcpa\RcpaViewCatalog;
 use Tests\TestCase;
 
@@ -13,8 +18,14 @@ class RcpaViewCatalogTest extends TestCase
     {
         $models = (new RcpaViewCatalog)->models();
 
-        $this->assertNotEmpty($models);
-        $this->assertContains(VwProductionView::class, $models);
+        $this->assertSame([
+            VwBOMLINESView::class,
+            VwProductionView::class,
+            VwSALESORDERSView::class,
+            VwSALESView::class,
+            VwSTKMASTERView::class,
+            VwSTOCKONHANDView::class,
+        ], $models);
 
         foreach ($models as $model) {
             $this->assertTrue(is_subclass_of($model, ReadOnlyView::class));

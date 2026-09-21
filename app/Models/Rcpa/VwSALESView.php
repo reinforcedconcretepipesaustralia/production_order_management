@@ -2,6 +2,12 @@
 
 namespace App\Models\Rcpa;
 
+/**
+ * Invoiced pipe sales (and credit notes), not the future order book.
+ *
+ * TRANS_TYPE is DRINV for invoices and DRCDT for credits. Open orders still to
+ * make are VwSALESORDERSView.
+ */
 class VwSALESView extends ReadOnlyView
 {
     protected $table = 'dbo.vwSALES';

@@ -105,7 +105,7 @@ class OrderSyncTest extends TestCase
         $this->assertSame(0, SalesOrder::query()->count());
     }
 
-    public function test_cancelled_orders_and_lines_are_left_out(): void
+    public function test_cancelled_suspended_and_closed_headers_and_cancelled_lines_are_left_out(): void
     {
         $this->sku('RCPVIC', 'R0600-4');
 
@@ -115,17 +115,40 @@ class OrderSyncTest extends TestCase
                 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
             ], ['STATUS_FLAG' => 'C'])
             ->addOrderLine('RCPVIC', [
-                'UNIQUE_ID' => 2, 'REFERENCE_NBR' => 'CANCELLED-LINE',
+                'UNIQUE_ID' => 2, 'REFERENCE_NBR' => 'SUSPENDED-HEADER',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
+            ], ['STATUS_FLAG' => 'S'])
+            ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 3, 'REFERENCE_NBR' => 'CLOSED-HEADER',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
+            ], ['STATUS_FLAG' => 'X'])
+            ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 4, 'REFERENCE_NBR' => 'CANCELLED-LINE',
                 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'LINE_STATUS' => 'C',
             ])
             ->addOrderLine('RCPVIC', [
-                'UNIQUE_ID' => 3, 'REFERENCE_NBR' => 'OPEN',
+                'UNIQUE_ID' => 5, 'REFERENCE_NBR' => 'OPEN',
                 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
             ]);
 
         app(OrderSync::class)->sync();
 
         $this->assertSame(['OPEN'], SalesOrder::query()->pluck('erp_order_reference')->all());
+    }
+
+    public function test_invoiced_sales_are_not_imported_as_the_order_book(): void
+    {
+        $this->sku('RCPVIC', 'R0600-4');
+
+        $this->tencia->addOrderLine('RCPVIC', [
+            'STOCK_CODE' => 'R0600-4',
+            'STOCK_LOCATION' => '31',
+            'TRANS_TYPE' => 'DRINV',
+        ]);
+
+        app(OrderSync::class)->sync();
+
+        $this->assertSame(0, SalesOrder::query()->count());
     }
 
     /**

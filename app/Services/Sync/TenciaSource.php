@@ -3,6 +3,7 @@
 namespace App\Services\Sync;
 
 use App\Models\Depot;
+use App\Models\Rcpa\VwSALESORDERSView;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
@@ -11,10 +12,10 @@ use Illuminate\Support\Facades\DB;
 /**
  * Where each question about Tencia is actually answered.
  *
- * The consolidated TenciaRCP_View is preferred, but two of its views cannot serve the planner:
- * vwSALES_ORDERS denies SELECT to the read-only login, and vwSTOCK_ON_HAND carries only rings and
- * seconds — no pipes. Those two fall back to the per-state databases, which the same login can
- * read. docs/erp/contract.md records why for each import.
+ * The consolidated TenciaRCP_View is preferred. vwSTOCK_ON_HAND carries only rings and
+ * seconds — no pipes — so stock falls back to the per-state databases, which the same login can
+ * read. The future order book is always dbo.vwSALES_ORDERS. Invoiced history is dbo.vwSALES.
+ * docs/erp/contract.md records why for each import.
  *
  * Everything here is read-only. The rcpa_sql connection refuses writes at the driver level.
  */
@@ -37,6 +38,24 @@ class TenciaSource
     public function view(string $name): Builder
     {
         return $this->connection()->table(DB::raw($this->viewName($name)));
+    }
+
+    /**
+     * Open sales-order lines for one entity from dbo.vwSALES_ORDERS.
+     *
+     * This is the future order book. Invoiced pipes are dbo.vwSALES and are not read here.
+     * Headers with STATUS_FLAG in C, S, or X, cancelled lines, and lines with nothing left
+     * to make are excluded.
+     */
+    public function openSalesOrderLines(string $entityCode): Builder
+    {
+        return $this->view('vwSALES_ORDERS')
+            ->where('ENTITY', $entityCode)
+            ->where('TRANS_TYPE', 'DRSOR')
+            ->whereNotIn('STATUS_FLAG', VwSALESORDERSView::EXCLUDED_HEADER_STATUS_FLAGS)
+            ->where('LINE_STATUS', '<>', 'C')
+            ->where('BACKORDER_QTY', '>', 0)
+            ->orderBy('LINE_DELIVERY_DATE');
     }
 
     /**

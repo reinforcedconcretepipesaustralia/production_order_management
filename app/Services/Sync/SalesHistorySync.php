@@ -10,8 +10,8 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Monthly sales history, from dbo.vwSALES — the velocity the demand model's R3M/R6M/R12M columns
- * average, and what decides which products are fast movers worth holding safety stock of.
+ * Monthly invoiced sales history, from dbo.vwSALES — pipes that have been invoiced (DRINV) or
+ * credited (DRCDT). The future order book is dbo.vwSALES_ORDERS, not this view.
  *
  * Credits (DRCDT) are netted off invoices (DRINV) rather than counted as sales; a returned pipe did
  * not sell. The view holds three years, so a twelve-month average is always available.

@@ -2,6 +2,14 @@
 
 namespace App\Models\Rcpa;
 
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
+
+/**
+ * Future order book: open sales-order lines still to make or ship.
+ *
+ * Invoiced pipe history lives on VwSALESView (DRINV / DRCDT), not here.
+ */
 class VwSALESORDERSView extends ReadOnlyView
 {
     protected $table = 'dbo.vwSALES_ORDERS';
@@ -9,6 +17,32 @@ class VwSALESORDERSView extends ReadOnlyView
     protected $primaryKey = 'ENTITY';
 
     public $incrementing = false;
+
+    /**
+     * Header STATUS_FLAG values that are not an open order: cancelled, suspended, and closed.
+     *
+     * @var list<string>
+     */
+    public const EXCLUDED_HEADER_STATUS_FLAGS = ['C', 'S', 'X'];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope('openHeader', function (Builder $query): void {
+            $query->whereNotIn('STATUS_FLAG', self::EXCLUDED_HEADER_STATUS_FLAGS);
+        });
+    }
+
+    /**
+     * Lines that still belong on the future order book.
+     */
+    #[Scope]
+    protected function outstanding(Builder $query): Builder
+    {
+        return $query
+            ->where('TRANS_TYPE', 'DRSOR')
+            ->where('LINE_STATUS', '<>', 'C')
+            ->where('BACKORDER_QTY', '>', 0);
+    }
 
     protected function casts(): array
     {

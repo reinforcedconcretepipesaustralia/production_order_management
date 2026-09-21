@@ -96,33 +96,27 @@ class FakeTenciaSource extends TenciaSource
             $table->decimal('BILL_TONNES_PRODUCED', 18, 6)->default(0);
         });
 
+        Schema::create('vwSALES_ORDERS', function (Blueprint $table) {
+            $table->string('ENTITY');
+            $table->string('TRANS_TYPE')->default('DRSOR');
+            $table->string('STATUS_FLAG')->nullable();
+            $table->integer('UNIQUE_ID');
+            $table->string('REFERENCE_NBR');
+            $table->integer('LINE_NBR')->default(1);
+            $table->string('STOCK_CODE');
+            $table->string('STOCK_LOCATION')->nullable();
+            $table->string('DESCRIPTION')->nullable();
+            $table->decimal('BACKORDER_QTY', 18, 6)->default(0);
+            $table->decimal('ALLOCATED_QTY', 18, 6)->default(0);
+            $table->dateTime('LINE_DELIVERY_DATE')->nullable();
+            $table->dateTime('ORDER_DATE')->nullable();
+            $table->string('CUSTOMER_CODE')->nullable();
+            $table->string('LINE_STATUS')->nullable();
+            $table->string('DELIVERY_NAME')->nullable();
+            $table->string('DELIVERY_NOTE_1')->nullable();
+        });
+
         foreach (['RCPVIC', 'RCPNSW', 'RCPQLD', 'RCPSA'] as $entity) {
-            Schema::create($this->stateTableName($entity, 'SOR_LINES'), function (Blueprint $table) {
-                $table->integer('UNIQUE_ID');
-                $table->string('TRANS_TYPE')->default('DRSOR');
-                $table->string('REFERENCE_NBR');
-                $table->integer('REFERENCE_DUPLICATE')->default(0);
-                $table->integer('LINE_NBR')->default(1);
-                $table->string('STOCK_CODE');
-                $table->string('STOCK_LOCATION')->nullable();
-                $table->string('DESCRIPTION')->nullable();
-                $table->decimal('BACKORDER_QTY', 18, 6)->default(0);
-                $table->decimal('ALLOCATED_QTY', 18, 6)->default(0);
-                $table->dateTime('DELIVERY_DATE')->nullable();
-                $table->string('CUSTOMER_CODE')->nullable();
-                $table->string('LINE_STATUS')->nullable();
-            });
-
-            Schema::create($this->stateTableName($entity, 'SOR_MASTER'), function (Blueprint $table) {
-                $table->string('TRANS_TYPE')->default('DRSOR');
-                $table->string('REFERENCE_NBR');
-                $table->integer('REFERENCE_DUPLICATE')->default(0);
-                $table->dateTime('ORDER_DATE')->nullable();
-                $table->string('STATUS_FLAG')->nullable();
-                $table->string('DELIVERY_NAME')->nullable();
-                $table->string('DELIVERY_NOTE_1')->nullable();
-            });
-
             Schema::create($this->stateTableName($entity, 'STK_LOCN_MASTER'), function (Blueprint $table) {
                 $table->string('STOCK_CODE');
                 $table->string('STOCK_LOCATION');
@@ -191,39 +185,37 @@ class FakeTenciaSource extends TenciaSource
     }
 
     /**
-     * An order line and, unless one already exists, the header it hangs from.
+     * An open order line on dbo.vwSALES_ORDERS.
      *
      * @param  array<string, mixed>  $line
      * @param  array<string, mixed>  $header
      */
     public function addOrderLine(string $entity, array $line, array $header = []): self
     {
-        $reference = (string) ($line['REFERENCE_NBR'] ?? '1');
-
-        DB::table($this->stateTableName($entity, 'SOR_LINES'))->insert(array_merge([
-            'UNIQUE_ID' => DB::table($this->stateTableName($entity, 'SOR_LINES'))->count() + 1,
+        $attributes = array_merge([
+            'ENTITY' => $entity,
             'TRANS_TYPE' => 'DRSOR',
-            'REFERENCE_NBR' => $reference,
-            'REFERENCE_DUPLICATE' => 0,
+            'UNIQUE_ID' => DB::table('vwSALES_ORDERS')->count() + 1,
+            'REFERENCE_NBR' => (string) ($line['REFERENCE_NBR'] ?? '1'),
             'LINE_NBR' => 1,
             'LINE_STATUS' => 'O',
+            'STATUS_FLAG' => 'O',
             'BACKORDER_QTY' => 10,
-            'DELIVERY_DATE' => '2026-12-01 00:00:00',
-        ], $line));
+            'LINE_DELIVERY_DATE' => '2026-12-01 00:00:00',
+            'ORDER_DATE' => '2026-09-01 00:00:00',
+            'DELIVERY_NAME' => 'A customer',
+            'DELIVERY_NOTE_1' => 'A site',
+        ], $line, $header);
 
-        $headers = DB::table($this->stateTableName($entity, 'SOR_MASTER'));
+        $attributes['ENTITY'] = $entity;
+        $attributes['LINE_DELIVERY_DATE'] = $line['LINE_DELIVERY_DATE']
+            ?? $header['LINE_DELIVERY_DATE']
+            ?? $line['DELIVERY_DATE']
+            ?? $header['DELIVERY_DATE']
+            ?? $attributes['LINE_DELIVERY_DATE'];
+        unset($attributes['DELIVERY_DATE']);
 
-        if ($headers->where('REFERENCE_NBR', $reference)->doesntExist()) {
-            $headers->insert(array_merge([
-                'TRANS_TYPE' => 'DRSOR',
-                'REFERENCE_NBR' => $reference,
-                'REFERENCE_DUPLICATE' => 0,
-                'ORDER_DATE' => '2026-09-01 00:00:00',
-                'STATUS_FLAG' => 'O',
-                'DELIVERY_NAME' => 'A customer',
-                'DELIVERY_NOTE_1' => 'A site',
-            ], $header));
-        }
+        DB::table('vwSALES_ORDERS')->insert($attributes);
 
         return $this;
     }

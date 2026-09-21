@@ -14,19 +14,20 @@ sales but has **no BOM and no production**, which confirms it makes nothing.
 
 ## Two databases, not one
 
-The consolidated `TenciaRCP_View` is preferred, but it does not cover everything. Two gaps force a
-per-state fallback to `TenciaRCP_VIC` / `_NSW` / `_QLD` / `_SA`, which the same login can read:
+The consolidated `TenciaRCP_View` is preferred, but pipe stock on hand is not in it. That gap
+forces a per-state fallback to `TenciaRCP_VIC` / `_NSW` / `_QLD` / `_SA`, which the same login can read:
 
 | Gap | Why the view fails | Fallback |
 |---|---|---|
-| Order book | `vwSALES_ORDERS` exists but **SELECT is denied** | `SOR_LINES` + `SOR_MASTER` |
 | Pipe stock on hand | `vwSTOCK_ON_HAND` holds only categories `?G` (rings, sandbands, caps) and `?H` (seconds) — 142 rows, **no pipes** | `STK_LOCN_MASTER` |
 
-Both are worth raising with whoever owns the view layer: a grant on `vwSALES_ORDERS` and a
-`vwSTOCK_ON_HAND` widened to pipe categories would let the app read one database again. Until then
-the per-state fallback is the contract, and `sync:orders` / `sync:stock` are written against it.
+Raise a widened `vwSTOCK_ON_HAND` with the view owner so stock can join the consolidated database.
+Until then `sync:stock` is written against the per-state fallback.
 
-`vwQUOTES` is also denied. Nothing needs it yet.
+The **future order book** is always `dbo.vwSALES_ORDERS` (`VwSALESORDERSView`). **Invoiced** pipes
+and credit notes are `dbo.vwSALES` (`VwSALESView`, `DRINV` / `DRCDT`) and are not the order book.
+
+Quotes are out of this model; `vwQUOTES` is not mapped.
 
 ## Per import
 
@@ -64,18 +65,14 @@ The 6.00 mm gauge is `WIREDE6.00`, not `WIREPL6.00` as the plan assumed, and onl
 
 ### `sync:orders` → `sales_orders`
 
-`SOR_LINES` joined `SOR_MASTER` on `(REFERENCE_NBR, REFERENCE_DUPLICATE, TRANS_TYPE)`, per state
-database. Filter `m.TRANS_TYPE = 'DRSOR'`, `m.STATUS_FLAG NOT IN ('C','X')`, `l.LINE_STATUS <> 'C'` —
-the same filter the workbook's Power Query used.
+`dbo.vwSALES_ORDERS`. Filter `TRANS_TYPE = 'DRSOR'`, `STATUS_FLAG NOT IN ('C','S','X')`,
+`LINE_STATUS <> 'C'`, `BACKORDER_QTY > 0`.
 
-`l.UNIQUE_ID` is the natural key. `BACKORDER_QTY` is the quantity still to make; `STOCK_QTY` is the
-ordered quantity. `l.DELIVERY_DATE` is the line's due date and is what the priority rule ranks on —
-prefer it over the header's. `SHIPPED_QTY` is nullable.
+`UNIQUE_ID` is the natural key. `BACKORDER_QTY` is the quantity still to make. `LINE_DELIVERY_DATE`
+is the line's due date and is what the priority rule ranks on — prefer it over the header's.
 
-Live at discovery: VIC 2,742 open lines, NSW 1,991, QLD 2,508, SA 169 — 7,410 nationally, against
-155,835 + 98,738 + 140,805 + 7,876 backordered pipes.
-
-Delivery dates run from 2016 to 2027, so overdue lines are real and must not be treated as bad data.
+This is not invoiced history. Completed invoices and credits are `sync:sales-history` from
+`dbo.vwSALES`.
 
 ### `sync:stock` → `inventory_sohs`
 
@@ -100,9 +97,10 @@ VIC `33` alone holds 5,151 pipes of rework — large enough that netting it agai
 
 ### `sync:sales-history` → `sales_history_monthly`
 
-`dbo.vwSALES` (116,586 rows). `TRANS_TYPE` is `DRINV` (113,642) or `DRCDT` (2,944, credits —
-subtract them). Covers 22 September 2023 to today, so R12M is available for every state and R3M/R6M
-are safe. Note `DATE` is a reserved word; bracket it.
+`dbo.vwSALES` (116,586 rows). These are **invoiced** pipes, not the future order book.
+`TRANS_TYPE` is `DRINV` (113,642) or `DRCDT` (2,944, credits — subtract them). Covers 22 September
+2023 to today, so R12M is available for every state and R3M/R6M are safe. Note `DATE` is a reserved
+word; bracket it.
 
 ### `sync:production-actuals` → `production_actuals`
 

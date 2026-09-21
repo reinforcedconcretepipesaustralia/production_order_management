@@ -225,6 +225,7 @@ final class RcpaViewReadService
             $to = CarbonImmutable::parse($toDate)->endOfDay();
 
             $records = VwSALESORDERSView::query()
+                ->outstanding()
                 ->select(['ENTITY', 'ORDER_DATE', 'LINE_DELIVERY_DATE', 'ORDER_QTY', 'ALLOCATED_QTY', 'BACKORDER_QTY'])
                 ->whereBetween('LINE_DELIVERY_DATE', [$from->toDateTimeString(), $to->toDateTimeString()])
                 ->orderBy('LINE_DELIVERY_DATE')

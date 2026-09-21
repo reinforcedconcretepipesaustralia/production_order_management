@@ -78,11 +78,15 @@ class RcpaSqlStatusCommand extends Command
                 $this->line("[readable] {$view['table']}");
 
                 if ($this->option('columns')) {
-                    $columns = collect(Schema::connection('rcpa_sql')->getColumns($view['table']))
-                        ->pluck('name')
-                        ->implode(', ');
+                    try {
+                        $columns = collect(Schema::connection('rcpa_sql')->getColumns($view['table']))
+                            ->pluck('name')
+                            ->implode(', ');
 
-                    $this->line("  Columns: {$columns}");
+                        $this->line("  Columns: {$columns}");
+                    } catch (Throwable) {
+                        $this->line('  Columns: (unavailable for this view)');
+                    }
                 }
 
                 continue;

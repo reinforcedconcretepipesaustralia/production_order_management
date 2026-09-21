@@ -7,14 +7,13 @@ use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * The outstanding order book — what the priority rule ranks on.
  *
- * Reads SOR_LINES joined SOR_MASTER in each state's own database, because the consolidated
- * vwSALES_ORDERS denies SELECT to the read-only login. The filter is the one the workbooks' Power
- * Query used, so the two agree: open orders only, cancelled lines excluded.
+ * Reads the future order book from dbo.vwSALES_ORDERS. Invoiced pipe sales are dbo.vwSALES
+ * and are not part of this import. Open DRSOR headers only (STATUS_FLAG not C, S, or X),
+ * cancelled lines excluded, quantities still to make.
  *
  * Supersedes OrderBookImporter, which reads a manual Excel extract and is only as current as its
  * last refresh.
@@ -64,27 +63,7 @@ final class OrderSync
      */
     private function openLinesFor(string $entity): Collection
     {
-        return $this->source->stateTable($entity, 'SOR_LINES', 'l')
-            ->join(
-                DB::raw(
-                    $this->source->stateTableName($entity, 'SOR_MASTER').' AS m',
-                ),
-                function ($join) {
-                    $join->on('m.REFERENCE_NBR', '=', 'l.REFERENCE_NBR')
-                        ->on('m.REFERENCE_DUPLICATE', '=', 'l.REFERENCE_DUPLICATE')
-                        ->on('m.TRANS_TYPE', '=', 'l.TRANS_TYPE');
-                },
-            )
-            ->where('m.TRANS_TYPE', 'DRSOR')
-            ->whereNotIn('m.STATUS_FLAG', ['C', 'X'])
-            ->where('l.LINE_STATUS', '<>', 'C')
-            ->where('l.BACKORDER_QTY', '>', 0)
-            ->orderBy('l.DELIVERY_DATE')
-            ->get([
-                'l.UNIQUE_ID', 'l.REFERENCE_NBR', 'l.LINE_NBR', 'l.STOCK_CODE', 'l.STOCK_LOCATION',
-                'l.BACKORDER_QTY', 'l.ALLOCATED_QTY', 'l.DELIVERY_DATE', 'l.CUSTOMER_CODE',
-                'l.DESCRIPTION', 'm.ORDER_DATE', 'm.DELIVERY_NAME', 'm.DELIVERY_NOTE_1',
-            ]);
+        return $this->source->openSalesOrderLines($entity)->get();
     }
 
     /**
@@ -166,7 +145,7 @@ final class OrderSync
         }
 
         $ordered = $this->date($line->ORDER_DATE) ?? CarbonImmutable::now()->startOfDay();
-        $delivery = $this->date($line->DELIVERY_DATE) ?? $ordered;
+        $delivery = $this->date($line->LINE_DELIVERY_DATE) ?? $ordered;
 
         $result->count('orders');
 

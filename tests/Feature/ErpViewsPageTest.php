@@ -43,6 +43,7 @@ class ErpViewsPageTest extends TestCase
             ->assertOk()
             ->assertSee('dbo.vwProduction')
             ->assertSee('dbo.vwSALES_ORDERS')
+            ->assertDontSee('dbo.vwQUOTES')
             ->assertDontSee('RCPA_SQL_PASSWORD');
     }
 
