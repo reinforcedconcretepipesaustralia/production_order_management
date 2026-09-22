@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\Shifts;
 
-use App\Enums\Capability;
-use App\Filament\Concerns\ConfiguresPlantReferenceData;
 use App\Filament\Resources\Shifts\Pages\CreateShift;
 use App\Filament\Resources\Shifts\Pages\EditShift;
 use App\Filament\Resources\Shifts\Pages\ListShifts;
@@ -20,8 +18,6 @@ use UnitEnum;
 
 class ShiftResource extends Resource
 {
-    use ConfiguresPlantReferenceData;
-
     protected static ?string $model = Shift::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClock;
@@ -56,18 +52,5 @@ class ShiftResource extends Resource
             'create' => CreateShift::route('/create'),
             'edit' => EditShift::route('/{record}/edit'),
         ];
-    }
-
-    /**
-     * @return list<Capability>
-     */
-    protected static function viewCapabilities(): array
-    {
-        return [Capability::ViewMasterData, Capability::ViewSchedules];
-    }
-
-    protected static function manageCapability(): Capability
-    {
-        return Capability::ManageMasterData;
     }
 }

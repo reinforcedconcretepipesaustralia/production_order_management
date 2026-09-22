@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\Depots;
 
-use App\Enums\Capability;
-use App\Filament\Concerns\ConfiguresPlantReferenceData;
 use App\Filament\Resources\Depots\Pages\CreateDepot;
 use App\Filament\Resources\Depots\Pages\EditDepot;
 use App\Filament\Resources\Depots\Pages\ListDepots;
@@ -19,8 +17,6 @@ use UnitEnum;
 
 class DepotResource extends Resource
 {
-    use ConfiguresPlantReferenceData;
-
     protected static ?string $model = Depot::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingOffice2;
@@ -56,18 +52,5 @@ class DepotResource extends Resource
             'create' => CreateDepot::route('/create'),
             'edit' => EditDepot::route('/{record}/edit'),
         ];
-    }
-
-    /**
-     * @return list<Capability>
-     */
-    protected static function viewCapabilities(): array
-    {
-        return [Capability::ViewMasterData];
-    }
-
-    protected static function manageCapability(): Capability
-    {
-        return Capability::ManageMasterData;
     }
 }

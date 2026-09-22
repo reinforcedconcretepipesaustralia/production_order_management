@@ -19,7 +19,7 @@ abstract class DepotScopedApiRequest extends FormRequest
         }
 
         if (
-            $user->hasRole(AppRole::PlannerAdmin)
+            $user->hasAppRole(AppRole::PlannerAdmin)
             && Gate::forUser($user)->allows(Capability::ManageSchedules->value)
         ) {
             return true;

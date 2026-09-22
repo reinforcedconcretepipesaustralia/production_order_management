@@ -25,6 +25,11 @@ enum Capability: string
     case ManageInventoryTransfers = 'inventory-transfers.manage';
     case ViewDashboards = 'dashboards.view';
 
+    public function shieldPermission(): string
+    {
+        return 'Capability:'.$this->name;
+    }
+
     public function requiresDepotAssignment(): bool
     {
         return match ($this) {

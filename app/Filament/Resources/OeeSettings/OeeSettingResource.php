@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\OeeSettings;
 
-use App\Enums\Capability;
-use App\Filament\Concerns\ConfiguresPlantReferenceData;
 use App\Filament\Resources\OeeSettings\Pages\CreateOeeSetting;
 use App\Filament\Resources\OeeSettings\Pages\EditOeeSetting;
 use App\Filament\Resources\OeeSettings\Pages\ListOeeSettings;
@@ -20,8 +18,6 @@ use UnitEnum;
 
 class OeeSettingResource extends Resource
 {
-    use ConfiguresPlantReferenceData;
-
     protected static ?string $model = OeeSetting::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedChartBar;
@@ -54,18 +50,5 @@ class OeeSettingResource extends Resource
             'create' => CreateOeeSetting::route('/create'),
             'edit' => EditOeeSetting::route('/{record}/edit'),
         ];
-    }
-
-    /**
-     * @return list<Capability>
-     */
-    protected static function viewCapabilities(): array
-    {
-        return [Capability::ViewMasterData, Capability::ViewSchedules];
-    }
-
-    protected static function manageCapability(): Capability
-    {
-        return Capability::ManageMasterData;
     }
 }

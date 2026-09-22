@@ -2,9 +2,9 @@
 
 namespace App\Filament\Pages;
 
-use App\Enums\Capability;
 use App\Models\User;
 use App\Services\Rcpa\RcpaViewReadService;
+use App\Support\Authorization\ShieldRoleCatalog;
 use App\Support\Rcpa\RcpaViewCatalog;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
@@ -27,8 +27,11 @@ class ErpViews extends Page
     public static function canAccess(): bool
     {
         $user = Filament::auth()->user();
+        $permission = app(ShieldRoleCatalog::class)->pagePermissionKey(static::class);
 
-        return $user instanceof User && $user->hasCapability(Capability::ViewMasterData);
+        return $user instanceof User
+            && $permission !== null
+            && $user->can($permission);
     }
 
     /**

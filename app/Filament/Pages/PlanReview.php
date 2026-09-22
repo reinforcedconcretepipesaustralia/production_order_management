@@ -71,11 +71,7 @@ class PlanReview extends Page
      */
     public static function canAccess(): bool
     {
-        return static::canViewOperationalPage([
-            Capability::ViewSchedules,
-            Capability::ManageSchedules,
-            Capability::ViewDepotOperations,
-        ]);
+        return static::canViewOperationalPage();
     }
 
     public function canManage(): bool

@@ -8,6 +8,7 @@ use App\Models\Depot;
 use App\Models\User;
 use App\Services\Dispatch\MicrosoftGraphDispatchNotificationSender;
 use App\Support\Database\ReadOnlySqlServerConnection;
+use BezhanSalleh\FilamentShield\Facades\FilamentShield;
 use Illuminate\Database\Connection;
 use Illuminate\Database\SqlServerConnection;
 use Illuminate\Support\Facades\Gate;
@@ -39,6 +40,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        FilamentShield::prohibitDestructiveCommands($this->app->isProduction());
+
         foreach (Capability::cases() as $capability) {
             Gate::define(
                 $capability->value,

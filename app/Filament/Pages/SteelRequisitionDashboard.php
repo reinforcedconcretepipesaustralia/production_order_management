@@ -39,7 +39,7 @@ class SteelRequisitionDashboard extends Page
 
     public static function canAccess(): bool
     {
-        return static::canViewOperationalPage([Capability::ViewMaterials]);
+        return static::canViewOperationalPage();
     }
 
     public function calculateForecasts(SteelPlanningService $steelPlanningService): void

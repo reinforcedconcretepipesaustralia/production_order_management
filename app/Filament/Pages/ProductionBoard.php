@@ -2,7 +2,6 @@
 
 namespace App\Filament\Pages;
 
-use App\Enums\Capability;
 use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\Depot;
 use App\Models\ProductionSchedule;
@@ -42,10 +41,7 @@ class ProductionBoard extends Page
 
     public static function canAccess(): bool
     {
-        return static::canViewOperationalPage([
-            Capability::ViewSchedules,
-            Capability::ViewDepotOperations,
-        ]);
+        return static::canViewOperationalPage();
     }
 
     /**

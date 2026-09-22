@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\DowntimeEvents;
 
-use App\Enums\Capability;
-use App\Filament\Concerns\ConfiguresPlantReferenceData;
 use App\Filament\Resources\DowntimeEvents\Pages\CreateDowntimeEvent;
 use App\Filament\Resources\DowntimeEvents\Pages\EditDowntimeEvent;
 use App\Filament\Resources\DowntimeEvents\Pages\ListDowntimeEvents;
@@ -20,8 +18,6 @@ use UnitEnum;
 
 class DowntimeEventResource extends Resource
 {
-    use ConfiguresPlantReferenceData;
-
     protected static ?string $model = DowntimeEvent::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedWrenchScrewdriver;
@@ -56,18 +52,5 @@ class DowntimeEventResource extends Resource
             'create' => CreateDowntimeEvent::route('/create'),
             'edit' => EditDowntimeEvent::route('/{record}/edit'),
         ];
-    }
-
-    /**
-     * @return list<Capability>
-     */
-    protected static function viewCapabilities(): array
-    {
-        return [Capability::ViewSchedules, Capability::ViewAssets];
-    }
-
-    protected static function manageCapability(): Capability
-    {
-        return Capability::ManageSchedules;
     }
 }

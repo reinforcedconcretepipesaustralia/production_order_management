@@ -27,7 +27,7 @@ class MakeUserCommandTest extends TestCase
         $user = User::query()->where('email', 'planner@rcpa.com.au')->sole();
 
         $this->assertTrue(Hash::check('a-long-enough-password', $user->password));
-        $this->assertTrue($user->hasRole(AppRole::PlannerAdmin));
+        $this->assertTrue($user->hasAppRole(AppRole::PlannerAdmin));
         // No depot restriction means every plant, which is what a national planner needs.
         $this->assertFalse($user->depots()->exists());
     }

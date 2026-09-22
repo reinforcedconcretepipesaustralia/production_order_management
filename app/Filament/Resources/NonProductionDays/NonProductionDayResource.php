@@ -2,8 +2,6 @@
 
 namespace App\Filament\Resources\NonProductionDays;
 
-use App\Enums\Capability;
-use App\Filament\Concerns\ConfiguresPlantReferenceData;
 use App\Filament\Resources\NonProductionDays\Pages\CreateNonProductionDay;
 use App\Filament\Resources\NonProductionDays\Pages\EditNonProductionDay;
 use App\Filament\Resources\NonProductionDays\Pages\ListNonProductionDays;
@@ -19,8 +17,6 @@ use UnitEnum;
 
 class NonProductionDayResource extends Resource
 {
-    use ConfiguresPlantReferenceData;
-
     protected static ?string $model = NonProductionDay::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCalendarDays;
@@ -50,18 +46,5 @@ class NonProductionDayResource extends Resource
             'create' => CreateNonProductionDay::route('/create'),
             'edit' => EditNonProductionDay::route('/{record}/edit'),
         ];
-    }
-
-    /**
-     * @return list<Capability>
-     */
-    protected static function viewCapabilities(): array
-    {
-        return [Capability::ViewSchedules, Capability::ViewMasterData];
-    }
-
-    protected static function manageCapability(): Capability
-    {
-        return Capability::ManageSchedules;
     }
 }

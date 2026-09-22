@@ -55,7 +55,7 @@ class LogisticsLoadBuilder extends Page
 
     public static function canAccess(): bool
     {
-        return static::canViewOperationalPage([Capability::ViewDispatchLoads]);
+        return static::canViewOperationalPage();
     }
 
     public function createLoad(): void

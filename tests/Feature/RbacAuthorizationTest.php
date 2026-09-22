@@ -174,7 +174,7 @@ class RbacAuthorizationTest extends TestCase
 
         $this->assertSame([], $user->assignedRoles());
         $this->assertSame([], $user->capabilities());
-        $this->assertFalse($user->hasRole('Unknown.Role'));
+        $this->assertFalse($user->hasAppRole('Unknown.Role'));
         $this->assertFalse($user->hasCapability('unknown.capability'));
     }
 
@@ -190,7 +190,7 @@ class RbacAuthorizationTest extends TestCase
             'Quality.Inspector',
             'Materials.Buyer',
         ], $user->app_roles);
-        $this->assertTrue($user->hasAnyRole(
+        $this->assertTrue($user->hasAnyAppRole(
             AppRole::PlannerAdmin,
             AppRole::MaterialsBuyer,
         ));

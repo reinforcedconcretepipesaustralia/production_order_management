@@ -15,13 +15,61 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory;
+
+    use HasRoles;
+    use Notifiable;
+
+    protected static function booted(): void
+    {
+        static::saved(function (User $user): void {
+            if (! $user->wasRecentlyCreated && ! $user->wasChanged('app_roles')) {
+                return;
+            }
+
+            $user->syncShieldRolesFromAppRoles();
+        });
+    }
+
+    /**
+     * Mirror Entra app roles onto Filament Shield roles, leaving Shield-only
+     * roles such as super_admin in place.
+     */
+    public function syncShieldRolesFromAppRoles(): void
+    {
+        $appRoleNames = array_map(
+            fn (AppRole $role): string => $role->value,
+            $this->assignedRoles(),
+        );
+
+        $preservedRoles = $this->roles()
+            ->pluck('name')
+            ->reject(fn (string $name): bool => in_array($name, array_column(AppRole::cases(), 'value'), true))
+            ->all();
+
+        $this->syncRoles([...$appRoleNames, ...$preservedRoles]);
+    }
+
+    /**
+     * Copy Shield roles that match an application role back onto the Entra role list.
+     */
+    public function mirrorShieldRolesOntoAppRoles(): void
+    {
+        $this->app_roles = $this->roles()
+            ->pluck('name')
+            ->filter(fn (string $name): bool => AppRole::tryFrom($name) !== null)
+            ->values()
+            ->all();
+
+        $this->saveQuietly();
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -59,7 +107,7 @@ class User extends Authenticatable implements FilamentUser
         return array_values($roles);
     }
 
-    public function hasRole(AppRole|string $role): bool
+    public function hasAppRole(AppRole|string $role): bool
     {
         $role = is_string($role) ? AppRole::tryFrom($role) : $role;
 
@@ -67,13 +115,13 @@ class User extends Authenticatable implements FilamentUser
             return false;
         }
 
-        return in_array($role, $this->assignedRoles(), true);
+        return in_array($role, $this->assignedRoles(), true) || $this->hasRole($role->value);
     }
 
-    public function hasAnyRole(AppRole|string ...$roles): bool
+    public function hasAnyAppRole(AppRole|string ...$roles): bool
     {
         foreach ($roles as $role) {
-            if ($this->hasRole($role)) {
+            if ($this->hasAppRole($role)) {
                 return true;
             }
         }
@@ -86,15 +134,12 @@ class User extends Authenticatable implements FilamentUser
      */
     public function capabilities(): array
     {
-        $capabilities = [];
+        $granted = $this->getAllPermissions()->pluck('name');
 
-        foreach ($this->assignedRoles() as $role) {
-            foreach ($role->capabilities() as $capability) {
-                $capabilities[$capability->value] = $capability;
-            }
-        }
-
-        return array_values($capabilities);
+        return array_values(array_filter(
+            Capability::cases(),
+            fn (Capability $capability): bool => $granted->contains($capability->shieldPermission()),
+        ));
     }
 
     public function hasCapability(Capability|string $capability): bool
@@ -107,13 +152,15 @@ class User extends Authenticatable implements FilamentUser
             return false;
         }
 
-        return in_array($capability, $this->capabilities(), true);
+        return $this->checkPermissionTo($capability->shieldPermission());
     }
 
     public function canAccessPanel(Panel $panel): bool
     {
         return $panel->getId() === 'admin'
-            && (config('app.env') === 'local' || $this->assignedRoles() !== []);
+            && (config('app.env') === 'local'
+                || $this->assignedRoles() !== []
+                || $this->roles()->exists());
     }
 
     public function hasCapabilityForDepot(

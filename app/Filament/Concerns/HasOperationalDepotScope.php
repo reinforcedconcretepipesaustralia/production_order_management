@@ -6,6 +6,7 @@ use App\Enums\AppRole;
 use App\Enums\Capability;
 use App\Models\Depot;
 use App\Models\User;
+use App\Support\Authorization\ShieldRoleCatalog;
 use Filament\Facades\Filament;
 
 trait HasOperationalDepotScope
@@ -17,10 +18,7 @@ trait HasOperationalDepotScope
         return $user instanceof User ? $user : null;
     }
 
-    /**
-     * @param  list<Capability>  $capabilities
-     */
-    protected static function canViewOperationalPage(array $capabilities): bool
+    protected static function canViewOperationalPage(): bool
     {
         $user = static::operationalUser();
 
@@ -28,13 +26,21 @@ trait HasOperationalDepotScope
             return false;
         }
 
-        if ($user->hasAnyRole(AppRole::PlannerAdmin, AppRole::ViewerExecutive)) {
+        if ($user->hasRole(config('filament-shield.super_admin.name'))) {
             return true;
         }
 
-        return collect($capabilities)->contains(
-            fn (Capability $capability): bool => $user->hasCapability($capability),
-        ) && $user->depots()->exists();
+        $permission = app(ShieldRoleCatalog::class)->pagePermissionKey(static::class);
+
+        if ($permission === null || ! $user->can($permission)) {
+            return false;
+        }
+
+        if ($user->hasAnyRole(AppRole::PlannerAdmin->value, AppRole::ViewerExecutive->value)) {
+            return true;
+        }
+
+        return $user->depots()->exists();
     }
 
     /**
@@ -46,7 +52,7 @@ trait HasOperationalDepotScope
     {
         $user = static::operationalUser();
 
-        if ($user?->hasAnyRole(AppRole::PlannerAdmin, AppRole::ViewerExecutive)) {
+        if ($user?->hasAnyRole(AppRole::PlannerAdmin->value, AppRole::ViewerExecutive->value)) {
             return null;
         }
 
@@ -59,7 +65,7 @@ trait HasOperationalDepotScope
     {
         $user = static::operationalUser();
 
-        return $user?->hasRole(AppRole::PlannerAdmin)
+        return $user?->hasRole(AppRole::PlannerAdmin->value)
             || $user?->hasCapabilityForDepot($capability, $depot) === true;
     }
 }

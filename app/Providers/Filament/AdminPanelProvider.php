@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Enums\ThemeMode;
 use Filament\Enums\UserMenuPosition;
 use Filament\Http\Middleware\Authenticate;
@@ -57,6 +58,7 @@ class AdminPanelProvider extends PanelProvider
                 'Operations',
                 'Plant Configuration',
                 'Data',
+                'Access',
             ])
             ->renderHook(
                 PanelsRenderHook::USER_MENU_BEFORE,
@@ -71,6 +73,11 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 AccountWidget::class,
                 FilamentInfoWidget::class,
+            ])
+            ->plugins([
+                FilamentShieldPlugin::make()
+                    ->navigationGroup('Access')
+                    ->navigationSort(2),
             ])
             ->middleware([
                 EncryptCookies::class,
