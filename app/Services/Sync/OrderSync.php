@@ -12,8 +12,8 @@ use Illuminate\Support\Collection;
  * The outstanding order book — what the priority rule ranks on.
  *
  * Reads the future order book from dbo.vwSALES_ORDERS. Invoiced pipe sales are dbo.vwSALES
- * and are not part of this import. Open DRSOR headers only (STATUS_FLAG not C, S, or X),
- * cancelled lines excluded, quantities still to make.
+ * and are not part of this import. Cancelled headers and lines (status C) are excluded, and
+ * only quantities still to make are kept.
  *
  * Supersedes OrderBookImporter, which reads a manual Excel extract and is only as current as its
  * last refresh.
@@ -153,11 +153,12 @@ final class OrderSync
             'depot_id' => $depot->id,
             'sku_master_id' => $sku->id,
             'erp_order_reference' => (string) $line->REFERENCE_NBR,
-            // UNIQUE_ID identifies the line for good, unlike a line number that can be renumbered.
-            'erp_line_reference' => (string) $line->UNIQUE_ID,
+            // LINE_UNIQUE_ID identifies the line for good, unlike a line number that can be renumbered.
+            // The per-state fallback still calls that key UNIQUE_ID.
+            'erp_line_reference' => $this->firstFilled($line, 'LINE_UNIQUE_ID', 'UNIQUE_ID'),
             'customer_code' => trim((string) $line->CUSTOMER_CODE) ?: 'UNKNOWN',
-            'customer_name' => trim((string) $line->DELIVERY_NAME) ?: 'Unknown customer',
-            'delivery_address' => trim((string) $line->DELIVERY_NOTE_1) ?: 'Not stated',
+            'customer_name' => $this->firstFilled($line, 'CUSTOMER_NAME', 'DELIVERY_NAME') ?: 'Unknown customer',
+            'delivery_address' => $this->deliveryAddress($line),
             // BACKORDER_QTY is what is still to be made, so nothing of it is allocated yet.
             'ordered_quantity' => $quantity,
             'allocated_quantity' => 0,
@@ -223,6 +224,42 @@ final class OrderSync
             ->whereNotNull('erp_entity_code')
             ->get(['id', 'sku_code', 'erp_entity_code', 'diameter_mm'])
             ->keyBy(fn (SkuMaster $sku): string => $sku->erp_entity_code.'|'.$sku->sku_code);
+    }
+
+    private function deliveryAddress(object $line): string
+    {
+        $note = $this->firstFilled($line, 'DELIVERY_NOTE_1');
+
+        if ($note !== '') {
+            return $note;
+        }
+
+        $parts = array_values(array_filter([
+            $this->firstFilled($line, 'ADDRESS_1'),
+            $this->firstFilled($line, 'ADDRESS_2'),
+            $this->firstFilled($line, 'SUBURB'),
+            $this->firstFilled($line, 'STATE'),
+            $this->firstFilled($line, 'POSTCODE'),
+        ], fn (string $part): bool => $part !== ''));
+
+        return $parts === [] ? 'Not stated' : implode(', ', $parts);
+    }
+
+    private function firstFilled(object $line, string ...$names): string
+    {
+        foreach ($names as $name) {
+            if (! isset($line->{$name})) {
+                continue;
+            }
+
+            $value = trim((string) $line->{$name});
+
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
     }
 
     private function date(mixed $value): ?CarbonImmutable

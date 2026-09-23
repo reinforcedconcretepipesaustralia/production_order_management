@@ -114,6 +114,13 @@ class FakeTenciaSource extends TenciaSource
             $table->string('LINE_STATUS')->nullable();
             $table->string('DELIVERY_NAME')->nullable();
             $table->string('DELIVERY_NOTE_1')->nullable();
+            $table->string('LINE_UNIQUE_ID')->nullable();
+            $table->string('CUSTOMER_NAME')->nullable();
+            $table->string('ADDRESS_1')->nullable();
+            $table->string('ADDRESS_2')->nullable();
+            $table->string('SUBURB')->nullable();
+            $table->string('STATE')->nullable();
+            $table->string('POSTCODE')->nullable();
         });
 
         foreach (['RCPVIC', 'RCPNSW', 'RCPQLD', 'RCPSA'] as $entity) {
@@ -235,6 +242,9 @@ class FakeTenciaSource extends TenciaSource
         ], $line, $header);
 
         $attributes['ENTITY'] = $entity;
+        $attributes['LINE_UNIQUE_ID'] ??= (string) $attributes['UNIQUE_ID'];
+        $attributes['CUSTOMER_NAME'] ??= $attributes['DELIVERY_NAME'];
+        $attributes['ADDRESS_1'] ??= $attributes['DELIVERY_NOTE_1'];
         $attributes['LINE_DELIVERY_DATE'] = $line['LINE_DELIVERY_DATE']
             ?? $header['LINE_DELIVERY_DATE']
             ?? $line['DELIVERY_DATE']

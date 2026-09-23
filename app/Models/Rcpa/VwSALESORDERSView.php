@@ -19,29 +19,33 @@ class VwSALESORDERSView extends ReadOnlyView
     public $incrementing = false;
 
     /**
-     * Header STATUS_FLAG values that are not an open order: cancelled, suspended, and closed.
-     *
-     * @var list<string>
+     * Cancelled header (STATUS_FLAG) or cancelled line (LINE_STATUS). Neither belongs on the order book.
      */
-    public const EXCLUDED_HEADER_STATUS_FLAGS = ['C', 'S', 'X'];
+    public const CANCELLED_STATUS = 'C';
 
     protected static function booted(): void
     {
-        static::addGlobalScope('openHeader', function (Builder $query): void {
-            $query->whereNotIn('STATUS_FLAG', self::EXCLUDED_HEADER_STATUS_FLAGS);
+        static::addGlobalScope('openOrder', function (Builder $query): void {
+            self::excludeCancelled($query);
         });
     }
 
     /**
-     * Lines that still belong on the future order book.
+     * Lines that still belong on the future order book: not cancelled, with quantity left to make.
+     *
+     * The view has no TRANS_TYPE column. Invoiced sales are VwSALESView.
      */
     #[Scope]
     protected function outstanding(Builder $query): Builder
     {
-        return $query
-            ->where('TRANS_TYPE', 'DRSOR')
-            ->where('LINE_STATUS', '<>', 'C')
-            ->where('BACKORDER_QTY', '>', 0);
+        return $query->where('BACKORDER_QTY', '>', 0);
+    }
+
+    public static function excludeCancelled(object $query): void
+    {
+        $query
+            ->where('STATUS_FLAG', '<>', self::CANCELLED_STATUS)
+            ->where('LINE_STATUS', '<>', self::CANCELLED_STATUS);
     }
 
     protected function casts(): array

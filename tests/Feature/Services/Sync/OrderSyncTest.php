@@ -105,7 +105,7 @@ class OrderSyncTest extends TestCase
         $this->assertSame(0, SalesOrder::query()->count());
     }
 
-    public function test_cancelled_suspended_and_closed_headers_and_cancelled_lines_are_left_out(): void
+    public function test_cancelled_headers_and_cancelled_lines_are_left_out(): void
     {
         $this->sku('RCPVIC', 'R0600-4');
 
@@ -133,13 +133,14 @@ class OrderSyncTest extends TestCase
 
         app(OrderSync::class)->sync();
 
-        $this->assertSame(['OPEN'], SalesOrder::query()->pluck('erp_order_reference')->all());
+        $references = SalesOrder::query()->orderBy('erp_order_reference')->pluck('erp_order_reference')->all();
+
+        $this->assertSame(['CLOSED-HEADER', 'OPEN', 'SUSPENDED-HEADER'], $references);
     }
 
     /**
-     * The read-only login is denied SELECT on the state tables dbo.vwSALES_ORDERS reads, so until
-     * a DBA grants it the order book has to come from SOR_LINES and SOR_MASTER instead. The same
-     * lines must import, filtered the same way.
+     * When dbo.vwSALES_ORDERS cannot be read, the same order book comes from SOR_LINES and
+     * SOR_MASTER. Cancelled headers and lines stay out there too.
      */
     public function test_the_order_book_falls_back_to_the_state_tables_when_the_view_cannot_be_read(): void
     {
@@ -160,11 +161,20 @@ class OrderSyncTest extends TestCase
                 'UNIQUE_ID' => 3, 'REFERENCE_NBR' => 'CANCELLED-LINE',
                 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'LINE_STATUS' => 'C',
             ])
+            ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 4, 'REFERENCE_NBR' => 'CANCELLED-HEADER',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
+            ], ['STATUS_FLAG' => 'C'])
             ->denyConsolidatedOrderBook();
 
         app(OrderSync::class)->sync();
 
-        $order = SalesOrder::query()->sole();
+        $this->assertSame(
+            ['OPEN', 'SUSPENDED-HEADER'],
+            SalesOrder::query()->orderBy('erp_order_reference')->pluck('erp_order_reference')->all(),
+        );
+
+        $order = SalesOrder::query()->where('erp_order_reference', 'OPEN')->sole();
 
         $this->assertSame('OPEN', $order->erp_order_reference);
         $this->assertSame('173079', $order->erp_line_reference);
@@ -198,15 +208,46 @@ class OrderSyncTest extends TestCase
     {
         $this->sku('RCPVIC', 'R0600-4');
 
+        $this->tencia->addSale([
+            'STOCK_CODE' => 'R0600-4',
+            'DATE' => '2026-09-01 00:00:00',
+            'QUANTITY' => 100,
+        ]);
+
+        $sql = $this->tencia->openSalesOrderLines('RCPVIC')->toSql();
+
+        app(OrderSync::class)->sync();
+
+        $this->assertStringContainsString('vwSALES_ORDERS', $sql);
+        $this->assertStringNotContainsString('TRANS_TYPE', $sql);
+        $this->assertSame(0, SalesOrder::query()->count());
+    }
+
+    public function test_the_view_line_id_and_customer_address_are_kept(): void
+    {
+        $this->sku('RCPVIC', 'R0600-4');
+
         $this->tencia->addOrderLine('RCPVIC', [
+            'UNIQUE_ID' => 1,
+            'LINE_UNIQUE_ID' => '173079',
+            'REFERENCE_NBR' => '136510',
             'STOCK_CODE' => 'R0600-4',
             'STOCK_LOCATION' => '31',
-            'TRANS_TYPE' => 'DRINV',
+            'CUSTOMER_NAME' => 'LOGCIT',
+            'DELIVERY_NAME' => 'WRONG',
+            'ADDRESS_1' => '12 Yard Road',
+            'SUBURB' => 'Melton',
+            'STATE' => 'VIC',
+            'POSTCODE' => '3337',
         ]);
 
         app(OrderSync::class)->sync();
 
-        $this->assertSame(0, SalesOrder::query()->count());
+        $order = SalesOrder::query()->sole();
+
+        $this->assertSame('173079', $order->erp_line_reference);
+        $this->assertSame('LOGCIT', $order->customer_name);
+        $this->assertSame('12 Yard Road, Melton, VIC, 3337', $order->delivery_address);
     }
 
     /**

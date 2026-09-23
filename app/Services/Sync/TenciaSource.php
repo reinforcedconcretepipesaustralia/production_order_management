@@ -15,8 +15,8 @@ use Throwable;
  *
  * The consolidated TenciaRCP_View is preferred. vwSTOCK_ON_HAND carries only rings and
  * seconds — no pipes — so stock falls back to the per-state databases, which the same login can
- * read. The future order book is dbo.vwSALES_ORDERS, with the same fallback until the read-only
- * login is granted SELECT on the state tables that view reads. Invoiced history is dbo.vwSALES.
+ * read. The future order book is dbo.vwSALES_ORDERS (VwSALESORDERSView). Per-state SOR_LINES and
+ * SOR_MASTER remain the fallback when that view cannot be read. Invoiced history is dbo.vwSALES.
  * docs/erp/contract.md records why for each import.
  *
  * Everything here is read-only. The rcpa_sql connection refuses writes at the driver level.
@@ -47,13 +47,11 @@ class TenciaSource
     /**
      * Open sales-order lines for one entity: the future order book.
      *
-     * Invoiced pipes are dbo.vwSALES and are not read here. Headers with STATUS_FLAG in C, S,
-     * or X, cancelled lines, and lines with nothing left to make are excluded either way.
+     * Invoiced pipes are dbo.vwSALES and are not read here. A header or line with status C is
+     * cancelled and is left out, as is a line with nothing left to make.
      *
-     * dbo.vwSALES_ORDERS is the source whenever it can be read. It reads TRANS_LINES in each
-     * state database, and cross-database ownership chaining does not apply, so the read-only
-     * login is denied until a DBA grants SELECT on those tables. Until then the same order book
-     * is assembled from SOR_LINES and SOR_MASTER, which the login can read.
+     * dbo.vwSALES_ORDERS is the source whenever it can be read. The same order book is assembled
+     * from SOR_LINES and SOR_MASTER when the view cannot be read.
      */
     public function openSalesOrderLines(string $entityCode): Builder
     {
@@ -84,13 +82,19 @@ class TenciaSource
 
     private function orderBookFromConsolidatedView(string $entityCode): Builder
     {
-        return $this->view('vwSALES_ORDERS')
+        $query = $this->view('vwSALES_ORDERS')
             ->where('ENTITY', $entityCode)
-            ->where('TRANS_TYPE', 'DRSOR')
-            ->whereNotIn('STATUS_FLAG', VwSALESORDERSView::EXCLUDED_HEADER_STATUS_FLAGS)
-            ->where('LINE_STATUS', '<>', 'C')
             ->where('BACKORDER_QTY', '>', 0)
-            ->orderBy('LINE_DELIVERY_DATE');
+            ->orderBy('LINE_DELIVERY_DATE')
+            ->select([
+                'LINE_UNIQUE_ID', 'REFERENCE_NBR', 'LINE_NBR', 'STOCK_CODE', 'STOCK_LOCATION',
+                'BACKORDER_QTY', 'LINE_DELIVERY_DATE', 'ORDER_DATE', 'CUSTOMER_CODE',
+                'CUSTOMER_NAME', 'ADDRESS_1', 'ADDRESS_2', 'SUBURB', 'STATE', 'POSTCODE',
+            ]);
+
+        VwSALESORDERSView::excludeCancelled($query);
+
+        return $query;
     }
 
     /**
@@ -109,8 +113,8 @@ class TenciaSource
                 },
             )
             ->where('m.TRANS_TYPE', 'DRSOR')
-            ->whereNotIn('m.STATUS_FLAG', VwSALESORDERSView::EXCLUDED_HEADER_STATUS_FLAGS)
-            ->where('l.LINE_STATUS', '<>', 'C')
+            ->where('m.STATUS_FLAG', '<>', VwSALESORDERSView::CANCELLED_STATUS)
+            ->where('l.LINE_STATUS', '<>', VwSALESORDERSView::CANCELLED_STATUS)
             ->where('l.BACKORDER_QTY', '>', 0)
             ->orderBy('l.DELIVERY_DATE')
             ->select([
