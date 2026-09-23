@@ -14,7 +14,7 @@ class VwSALESORDERSViewTest extends TestCase
         $this->assertStringContainsString('STATUS_FLAG', $query->toSql());
         $this->assertStringContainsString('LINE_STATUS', $query->toSql());
         $this->assertStringNotContainsString('TRANS_TYPE', $query->toSql());
-        $this->assertSame(['C', 'C'], $query->getBindings());
+        $this->assertSame(['C', 'S', 'X', 'C', 'S', 'X'], $query->getBindings());
     }
 
     public function test_outstanding_lines_are_those_still_to_make(): void

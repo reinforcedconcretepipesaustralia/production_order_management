@@ -20,7 +20,6 @@ class SyncAllCommand extends Command
         'sync:products' => [],
         'sync:bom' => [],
         'sync:stock' => [],
-        'sync:orders' => [],
         'sync:sales-history' => ['--months'],
         'sync:production-history' => ['--months'],
     ];

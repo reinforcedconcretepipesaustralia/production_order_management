@@ -5,7 +5,8 @@ namespace App\Services\Planning;
 use App\Models\Depot;
 use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
-use App\Models\SalesOrder;
+use App\Models\SkuMaster;
+use App\Services\Sync\OrderSync;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -22,6 +23,8 @@ use Illuminate\Support\Facades\Log;
  */
 final class PlanNarrator
 {
+    public function __construct(private OrderSync $orderBook) {}
+
     private const SYSTEM = <<<'PROMPT'
         You explain production plans to the planners and plant managers of an Australian manufacturer
         of steel-reinforced concrete pipe, across five plants: Melton and Kilmore in Victoria,
@@ -138,20 +141,22 @@ final class PlanNarrator
      */
     private function overdueOrders(PlanRun $run): array
     {
-        return SalesOrder::query()
-            ->with(['depot', 'sku'])
-            ->where('status', 'open')
-            ->where('requested_delivery_date', '<', $run->horizon_from)
-            ->orderBy('requested_delivery_date')
-            ->limit(5)
-            ->get()
-            ->map(fn (SalesOrder $order): array => [
-                'plant' => $order->depot?->code,
-                'product' => $order->sku?->sku_code,
-                'pipes' => $order->ordered_quantity,
-                'due' => $order->requested_delivery_date->toDateString(),
-            ])
-            ->all();
+        $lines = $this->orderBook->lines()
+            ->filter(fn (array $line): bool => $line['status'] === 'open'
+                && $line['requested_delivery_date'] < $run->horizon_from->toDateString())
+            ->sortBy('requested_delivery_date')
+            ->take(5)
+            ->values();
+
+        $depots = Depot::query()->whereIn('id', $lines->pluck('depot_id'))->get()->keyBy('id');
+        $skus = SkuMaster::query()->whereIn('id', $lines->pluck('sku_master_id'))->get()->keyBy('id');
+
+        return $lines->map(fn (array $line): array => [
+            'plant' => $depots->get($line['depot_id'])?->code,
+            'product' => $skus->get($line['sku_master_id'])?->sku_code,
+            'pipes' => $line['ordered_quantity'],
+            'due' => $line['requested_delivery_date'],
+        ])->all();
     }
 
     /**

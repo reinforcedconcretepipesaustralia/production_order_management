@@ -13,13 +13,13 @@ use App\Models\OeeSetting;
 use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
 use App\Models\SalesHistoryMonthly;
-use App\Models\SalesOrder;
 use App\Models\Shift;
 use App\Models\SkuMaster;
 use App\Services\Planning\PlanGenerator;
 use App\Services\Planning\PlanRequest;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Fixtures\SeedsLiveOrderBook;
 use Tests\TestCase;
 
 /**
@@ -30,6 +30,7 @@ use Tests\TestCase;
 class PlanGeneratorTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsLiveOrderBook;
 
     /** Monday 7 September 2026. */
     private CarbonImmutable $monday;
@@ -43,6 +44,7 @@ class PlanGeneratorTest extends TestCase
         parent::setUp();
 
         $this->monday = CarbonImmutable::parse('2026-09-07');
+        $this->installLiveOrderBook();
         $this->depot = $this->plant();
         $this->machine = $this->depot->machines->first();
     }
@@ -418,7 +420,8 @@ class PlanGeneratorTest extends TestCase
         $depot = Depot::factory()->create([
             'code' => 'MEL',
             'name' => 'Melton',
-            'erp_entity_code' => 'VIC',
+            'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['31'],
             'is_planning_enabled' => true,
         ]);
 
@@ -472,14 +475,7 @@ class PlanGeneratorTest extends TestCase
 
     private function order(SkuMaster $sku, int $quantity, string $due): void
     {
-        SalesOrder::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'ordered_quantity' => $quantity,
-            'allocated_quantity' => 0,
-            'requested_delivery_date' => $due,
-            'status' => 'open',
-        ]);
+        $this->liveOrder($this->depot, $sku, $quantity, $due);
     }
 
     private function salesOf(SkuMaster $sku, int $monthlyEa): void

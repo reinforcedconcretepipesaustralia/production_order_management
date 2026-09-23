@@ -8,6 +8,7 @@ use App\Models\InventorySoh;
 use App\Models\SalesHistoryMonthly;
 use App\Models\SalesOrder;
 use App\Models\SkuMaster;
+use App\Services\Sync\OrderSync;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -29,6 +30,8 @@ final class DemandModel
 
     /** Delivery months bucketed out, matching workbook columns V to Y. */
     private const FORWARD_MONTHS = 4;
+
+    public function __construct(private OrderSync $orderBook) {}
 
     /**
      * @return Collection<int, SkuDemandProfile> Keyed by SKU id, ordered fastest mover first.
@@ -205,11 +208,11 @@ final class DemandModel
     {
         $endOfHorizon = $asOf->startOfMonth()->addMonths(self::FORWARD_MONTHS)->subDay();
 
-        return SalesOrder::query()
-            ->where('depot_id', $depot->id)
-            ->whereIn('status', ['open', 'partially_allocated'])
-            ->whereColumn('allocated_quantity', '<', 'ordered_quantity')
-            ->get(['sku_master_id', 'ordered_quantity', 'allocated_quantity', 'requested_delivery_date'])
+        return $this->orderBook->lines()
+            ->filter(fn (array $line): bool => $line['depot_id'] === $depot->id
+                && in_array($line['status'], ['open', 'partially_allocated'], true)
+                && $line['allocated_quantity'] < $line['ordered_quantity'])
+            ->map(fn (array $line): SalesOrder => SalesOrder::make($line))
             ->groupBy('sku_master_id')
             ->map(function (Collection $orders) use ($asOf, $endOfHorizon): array {
                 $byMonth = [];

@@ -3,7 +3,6 @@
 namespace App\Services\Sync;
 
 use App\Models\Depot;
-use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -11,22 +10,33 @@ use Illuminate\Support\Collection;
 /**
  * The outstanding order book — what the priority rule ranks on.
  *
- * Reads the future order book from dbo.vwSALES_ORDERS. Invoiced pipe sales are dbo.vwSALES
- * and are not part of this import. Cancelled headers and lines (status C) are excluded, and
- * only quantities still to make are kept.
- *
- * Supersedes OrderBookImporter, which reads a manual Excel extract and is only as current as its
- * last refresh.
+ * Reads the future order book from dbo.vwSALES_ORDERS when a plan needs it. Invoiced pipe sales
+ * are dbo.vwSALES and are not part of this read. Headers and lines in status C, S, or X are
+ * excluded, and only quantities still to make are kept. Nothing is written to the local database.
  */
 final class OrderSync
 {
+    private ?SyncResult $lastResult = null;
+
+    /** @var Collection<int, array<string, mixed>>|null */
+    private ?Collection $openOrders = null;
+
     public function __construct(
         private TenciaSource $source,
         private HoldingYardRouter $router,
     ) {}
 
-    public function sync(bool $replace = true): SyncResult
+    /**
+     * Outstanding order lines for the plants, read from Tencia and not stored.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function lines(): Collection
     {
+        if ($this->openOrders !== null) {
+            return $this->openOrders;
+        }
+
         $result = new SyncResult;
         $depotsByLocation = $this->source->depotsByStockLocation();
         $depotsByEntity = Depot::query()->whereNotNull('erp_entity_code')->get()->groupBy('erp_entity_code');
@@ -45,15 +55,16 @@ final class OrderSync
             }
         }
 
-        if ($replace) {
-            SalesOrder::query()->delete();
-        }
+        $this->lastResult = $result;
 
-        foreach (array_chunk($rows, 500) as $chunk) {
-            SalesOrder::query()->upsert($chunk, ['erp_order_reference', 'erp_line_reference']);
-        }
+        return $this->openOrders = collect($rows);
+    }
 
-        return $result;
+    public function result(): SyncResult
+    {
+        $this->lines();
+
+        return $this->lastResult;
     }
 
     /**

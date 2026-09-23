@@ -6,13 +6,13 @@ use App\Models\DemandForecast;
 use App\Models\Depot;
 use App\Models\InventorySoh;
 use App\Models\SalesHistoryMonthly;
-use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Services\Planning\DemandModel;
 use App\Services\Planning\SkuDemandProfile;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Tests\Fixtures\SeedsLiveOrderBook;
 use Tests\TestCase;
 
 /**
@@ -22,6 +22,7 @@ use Tests\TestCase;
 class DemandModelTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsLiveOrderBook;
 
     private CarbonImmutable $asOf;
 
@@ -33,7 +34,12 @@ class DemandModelTest extends TestCase
 
         // Mid-month, so the current partial month is excluded from the velocity windows.
         $this->asOf = CarbonImmutable::parse('2026-09-15');
-        $this->depot = Depot::factory()->create(['code' => 'MEL']);
+        $this->installLiveOrderBook();
+        $this->depot = Depot::factory()->create([
+            'code' => 'MEL',
+            'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['31'],
+        ]);
     }
 
     public function test_velocity_averages_the_trailing_three_six_and_twelve_whole_months(): void
@@ -339,7 +345,11 @@ class DemandModelTest extends TestCase
 
     public function test_another_plants_sales_stock_and_orders_are_excluded(): void
     {
-        $other = Depot::factory()->create(['code' => 'KIL']);
+        $other = Depot::factory()->create([
+            'code' => 'KIL',
+            'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['32'],
+        ]);
         $sku = SkuMaster::factory()->create();
 
         SalesHistoryMonthly::factory()->create([
@@ -348,13 +358,7 @@ class DemandModelTest extends TestCase
             'month' => '2026-08-01',
             'quantity_ea' => 500,
         ]);
-        SalesOrder::factory()->create([
-            'depot_id' => $other->id,
-            'sku_master_id' => $sku->id,
-            'ordered_quantity' => 500,
-            'allocated_quantity' => 0,
-            'status' => 'open',
-        ]);
+        $this->liveOrder($other, $sku, quantity: 500, due: '2026-09-25', location: '32');
 
         $this->assertTrue($this->profiles()->isEmpty());
     }
@@ -386,14 +390,7 @@ class DemandModelTest extends TestCase
 
     private function order(SkuMaster $sku, int $quantity, string $due, int $allocated = 0): void
     {
-        SalesOrder::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'ordered_quantity' => $quantity,
-            'allocated_quantity' => $allocated,
-            'requested_delivery_date' => $due,
-            'status' => $allocated > 0 ? 'partially_allocated' : 'open',
-        ]);
+        $this->liveOrder($this->depot, $sku, $quantity, $due, $allocated);
     }
 
     private function stockOf(SkuMaster $sku, int $prime, int $rework = 0, string $bin = '31'): void

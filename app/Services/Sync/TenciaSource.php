@@ -47,8 +47,8 @@ class TenciaSource
     /**
      * Open sales-order lines for one entity: the future order book.
      *
-     * Invoiced pipes are dbo.vwSALES and are not read here. A header or line with status C is
-     * cancelled and is left out, as is a line with nothing left to make.
+     * Invoiced pipes are dbo.vwSALES and are not read here. A header or line whose status is
+     * C, S, or X is left out, as is a line with nothing left to make.
      *
      * dbo.vwSALES_ORDERS is the source whenever it can be read. The same order book is assembled
      * from SOR_LINES and SOR_MASTER when the view cannot be read.
@@ -103,7 +103,7 @@ class TenciaSource
      */
     private function orderBookFromStateTables(string $entityCode): Builder
     {
-        return $this->stateTable($entityCode, 'SOR_LINES', 'l')
+        $query = $this->stateTable($entityCode, 'SOR_LINES', 'l')
             ->join(
                 DB::raw($this->stateTableName($entityCode, 'SOR_MASTER').' AS m'),
                 function ($join) {
@@ -113,9 +113,11 @@ class TenciaSource
                 },
             )
             ->where('m.TRANS_TYPE', 'DRSOR')
-            ->where('m.STATUS_FLAG', '<>', VwSALESORDERSView::CANCELLED_STATUS)
-            ->where('l.LINE_STATUS', '<>', VwSALESORDERSView::CANCELLED_STATUS)
-            ->where('l.BACKORDER_QTY', '>', 0)
+            ->where('l.BACKORDER_QTY', '>', 0);
+
+        VwSALESORDERSView::excludeCancelled($query, 'm.STATUS_FLAG', 'l.LINE_STATUS');
+
+        return $query
             ->orderBy('l.DELIVERY_DATE')
             ->select([
                 'l.UNIQUE_ID', 'l.REFERENCE_NBR', 'l.LINE_NBR', 'l.STOCK_CODE', 'l.STOCK_LOCATION',

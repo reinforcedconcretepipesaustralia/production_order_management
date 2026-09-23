@@ -5,7 +5,6 @@ namespace Tests\Feature\Services\Planning;
 use App\Models\Depot;
 use App\Models\InventorySoh;
 use App\Models\SalesHistoryMonthly;
-use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Services\Planning\DemandModel;
 use App\Services\Planning\DemandRequirement;
@@ -14,6 +13,7 @@ use App\Services\Planning\SkuDemandProfile;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Tests\Fixtures\SeedsLiveOrderBook;
 use Tests\TestCase;
 
 /**
@@ -26,6 +26,7 @@ use Tests\TestCase;
 class DemandRequirementBuilderTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsLiveOrderBook;
 
     private CarbonImmutable $asOf;
 
@@ -36,7 +37,12 @@ class DemandRequirementBuilderTest extends TestCase
         parent::setUp();
 
         $this->asOf = CarbonImmutable::parse('2026-09-15');
-        $this->depot = Depot::factory()->create(['code' => 'MEL']);
+        $this->installLiveOrderBook();
+        $this->depot = Depot::factory()->create([
+            'code' => 'MEL',
+            'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['31'],
+        ]);
     }
 
     public function test_order_backed_work_always_outranks_replenishment(): void
@@ -223,14 +229,7 @@ class DemandRequirementBuilderTest extends TestCase
 
     private function order(SkuMaster $sku, int $quantity, string $due): void
     {
-        SalesOrder::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'ordered_quantity' => $quantity,
-            'allocated_quantity' => 0,
-            'requested_delivery_date' => $due,
-            'status' => 'open',
-        ]);
+        $this->liveOrder($this->depot, $sku, $quantity, $due);
     }
 
     private function stockOf(SkuMaster $sku, int $prime, string $bin = '31'): void

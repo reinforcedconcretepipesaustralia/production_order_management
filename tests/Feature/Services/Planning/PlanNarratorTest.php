@@ -5,12 +5,12 @@ namespace Tests\Feature\Services\Planning;
 use App\Models\Depot;
 use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
-use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Services\Planning\PlanNarrator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Tests\Fixtures\SeedsLiveOrderBook;
 use Tests\TestCase;
 
 /**
@@ -21,6 +21,7 @@ use Tests\TestCase;
 class PlanNarratorTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsLiveOrderBook;
 
     private Depot $kilmore;
 
@@ -34,8 +35,15 @@ class PlanNarratorTest extends TestCase
 
         config(['claude.api_key' => 'test-key', 'claude.model' => 'claude-opus-5']);
 
-        $this->kilmore = Depot::factory()->create(['code' => 'KIL', 'name' => 'Kilmore']);
-        $this->melton = Depot::factory()->create(['code' => 'MEL', 'name' => 'Melton']);
+        $this->installLiveOrderBook();
+        $this->kilmore = Depot::factory()->create([
+            'code' => 'KIL', 'name' => 'Kilmore', 'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['32'],
+        ]);
+        $this->melton = Depot::factory()->create([
+            'code' => 'MEL', 'name' => 'Melton', 'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['31'],
+        ]);
 
         $this->run = PlanRun::factory()->create([
             'horizon_from' => '2026-09-21',
@@ -91,14 +99,8 @@ class PlanNarratorTest extends TestCase
     {
         $sku = SkuMaster::factory()->create(['sku_code' => 'R0600-4']);
 
-        SalesOrder::factory()->create([
-            'depot_id' => $this->kilmore->id, 'sku_master_id' => $sku->id, 'status' => 'open',
-            'requested_delivery_date' => '2026-01-30', 'ordered_quantity' => 648,
-        ]);
-        SalesOrder::factory()->create([
-            'depot_id' => $this->kilmore->id, 'sku_master_id' => $sku->id, 'status' => 'open',
-            'requested_delivery_date' => '2027-06-01', 'ordered_quantity' => 10,
-        ]);
+        $this->liveOrder($this->kilmore, $sku, quantity: 648, due: '2026-01-30', location: '32');
+        $this->liveOrder($this->kilmore, $sku, quantity: 10, due: '2027-06-01', location: '32');
 
         $brief = app(PlanNarrator::class)->briefFor($this->run);
 

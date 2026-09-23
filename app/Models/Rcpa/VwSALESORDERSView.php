@@ -19,9 +19,11 @@ class VwSALESORDERSView extends ReadOnlyView
     public $incrementing = false;
 
     /**
-     * Cancelled header (STATUS_FLAG) or cancelled line (LINE_STATUS). Neither belongs on the order book.
+     * Header or line statuses that are not an open order: cancelled, suspended, and closed.
+     *
+     * @var list<string>
      */
-    public const CANCELLED_STATUS = 'C';
+    public const EXCLUDED_STATUSES = ['C', 'S', 'X'];
 
     protected static function booted(): void
     {
@@ -41,11 +43,11 @@ class VwSALESORDERSView extends ReadOnlyView
         return $query->where('BACKORDER_QTY', '>', 0);
     }
 
-    public static function excludeCancelled(object $query): void
+    public static function excludeCancelled(object $query, string $headerStatus = 'STATUS_FLAG', string $lineStatus = 'LINE_STATUS'): void
     {
         $query
-            ->where('STATUS_FLAG', '<>', self::CANCELLED_STATUS)
-            ->where('LINE_STATUS', '<>', self::CANCELLED_STATUS);
+            ->whereNotIn($headerStatus, self::EXCLUDED_STATUSES)
+            ->whereNotIn($lineStatus, self::EXCLUDED_STATUSES);
     }
 
     protected function casts(): array

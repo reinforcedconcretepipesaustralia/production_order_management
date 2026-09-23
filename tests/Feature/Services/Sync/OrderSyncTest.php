@@ -59,19 +59,18 @@ class OrderSyncTest extends TestCase
             'CUSTOMER_CODE' => '1008',
         ], ['ORDER_DATE' => '2026-09-01 00:00:00', 'DELIVERY_NAME' => 'LOGCIT']);
 
-        $counts = app(OrderSync::class)->sync()->counts();
+        $sync = app(OrderSync::class);
+        $order = $sync->lines()->sole();
 
-        $this->assertSame(1, $counts['orders']);
-
-        $order = SalesOrder::query()->sole();
-
-        $this->assertSame('136510', $order->erp_order_reference);
-        $this->assertSame('173079', $order->erp_line_reference, 'UNIQUE_ID survives renumbering.');
-        $this->assertSame(648, $order->ordered_quantity);
-        $this->assertSame(0, $order->allocated_quantity, 'A backorder has nothing allocated yet.');
-        $this->assertSame('2026-12-01', $order->requested_delivery_date->toDateString());
-        $this->assertSame('LOGCIT', $order->customer_name);
-        $this->assertSame($sku->id, $order->sku_master_id);
+        $this->assertSame(1, $sync->result()->counts()['orders']);
+        $this->assertDatabaseCount('sales_orders', 0);
+        $this->assertSame('136510', $order['erp_order_reference']);
+        $this->assertSame('173079', $order['erp_line_reference'], 'UNIQUE_ID survives renumbering.');
+        $this->assertSame(648, $order['ordered_quantity']);
+        $this->assertSame(0, $order['allocated_quantity'], 'A backorder has nothing allocated yet.');
+        $this->assertSame('2026-12-01', $order['requested_delivery_date']);
+        $this->assertSame('LOGCIT', $order['customer_name']);
+        $this->assertSame($sku->id, $order['sku_master_id']);
     }
 
     /**
@@ -86,10 +85,10 @@ class OrderSyncTest extends TestCase
             ->addOrderLine('RCPVIC', ['UNIQUE_ID' => 1, 'REFERENCE_NBR' => 'A', 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31'])
             ->addOrderLine('RCPVIC', ['UNIQUE_ID' => 2, 'REFERENCE_NBR' => 'B', 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '32']);
 
-        app(OrderSync::class)->sync();
+        $lines = app(OrderSync::class)->lines()->keyBy('erp_line_reference');
 
-        $this->assertSame($this->melton->id, SalesOrder::query()->where('erp_line_reference', '1')->sole()->depot_id);
-        $this->assertSame($this->kilmore->id, SalesOrder::query()->where('erp_line_reference', '2')->sole()->depot_id);
+        $this->assertSame($this->melton->id, $lines['1']['depot_id']);
+        $this->assertSame($this->kilmore->id, $lines['2']['depot_id']);
     }
 
     public function test_a_line_with_nothing_left_to_make_is_not_imported(): void
@@ -100,9 +99,7 @@ class OrderSyncTest extends TestCase
             'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'BACKORDER_QTY' => 0,
         ]);
 
-        app(OrderSync::class)->sync();
-
-        $this->assertSame(0, SalesOrder::query()->count());
+        $this->assertCount(0, app(OrderSync::class)->lines());
     }
 
     public function test_cancelled_headers_and_cancelled_lines_are_left_out(): void
@@ -127,15 +124,21 @@ class OrderSyncTest extends TestCase
                 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'LINE_STATUS' => 'C',
             ])
             ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 6, 'REFERENCE_NBR' => 'SUSPENDED-LINE',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'LINE_STATUS' => 'S',
+            ])
+            ->addOrderLine('RCPVIC', [
+                'UNIQUE_ID' => 7, 'REFERENCE_NBR' => 'CLOSED-LINE',
+                'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'LINE_STATUS' => 'X',
+            ])
+            ->addOrderLine('RCPVIC', [
                 'UNIQUE_ID' => 5, 'REFERENCE_NBR' => 'OPEN',
                 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
             ]);
 
-        app(OrderSync::class)->sync();
+        $references = app(OrderSync::class)->lines()->pluck('erp_order_reference')->sort()->values()->all();
 
-        $references = SalesOrder::query()->orderBy('erp_order_reference')->pluck('erp_order_reference')->all();
-
-        $this->assertSame(['CLOSED-HEADER', 'OPEN', 'SUSPENDED-HEADER'], $references);
+        $this->assertSame(['OPEN'], $references);
     }
 
     /**
@@ -167,22 +170,18 @@ class OrderSyncTest extends TestCase
             ], ['STATUS_FLAG' => 'C'])
             ->denyConsolidatedOrderBook();
 
-        app(OrderSync::class)->sync();
+        $lines = app(OrderSync::class)->lines();
 
-        $this->assertSame(
-            ['OPEN', 'SUSPENDED-HEADER'],
-            SalesOrder::query()->orderBy('erp_order_reference')->pluck('erp_order_reference')->all(),
-        );
+        $this->assertSame(['OPEN'], $lines->pluck('erp_order_reference')->all());
 
-        $order = SalesOrder::query()->where('erp_order_reference', 'OPEN')->sole();
+        $order = $lines->sole();
 
-        $this->assertSame('OPEN', $order->erp_order_reference);
-        $this->assertSame('173079', $order->erp_line_reference);
-        $this->assertSame(648, $order->ordered_quantity);
-        $this->assertSame('2026-12-01', $order->requested_delivery_date->toDateString());
-        $this->assertSame('LOGCIT', $order->customer_name);
-        $this->assertSame($this->melton->id, $order->depot_id);
-        $this->assertSame($sku->id, $order->sku_master_id);
+        $this->assertSame('173079', $order['erp_line_reference']);
+        $this->assertSame(648, $order['ordered_quantity']);
+        $this->assertSame('2026-12-01', $order['requested_delivery_date']);
+        $this->assertSame('LOGCIT', $order['customer_name']);
+        $this->assertSame($this->melton->id, $order['depot_id']);
+        $this->assertSame($sku->id, $order['sku_master_id']);
     }
 
     public function test_the_view_is_preferred_while_it_can_still_be_read(): void
@@ -199,9 +198,10 @@ class OrderSyncTest extends TestCase
                 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
             ]);
 
-        app(OrderSync::class)->sync();
-
-        $this->assertSame(['FROM-VIEW'], SalesOrder::query()->pluck('erp_order_reference')->all());
+        $this->assertSame(
+            ['FROM-VIEW'],
+            app(OrderSync::class)->lines()->pluck('erp_order_reference')->all(),
+        );
     }
 
     public function test_invoiced_sales_are_not_imported_as_the_order_book(): void
@@ -216,11 +216,10 @@ class OrderSyncTest extends TestCase
 
         $sql = $this->tencia->openSalesOrderLines('RCPVIC')->toSql();
 
-        app(OrderSync::class)->sync();
+        $this->assertCount(0, app(OrderSync::class)->lines());
 
         $this->assertStringContainsString('vwSALES_ORDERS', $sql);
         $this->assertStringNotContainsString('TRANS_TYPE', $sql);
-        $this->assertSame(0, SalesOrder::query()->count());
     }
 
     public function test_the_view_line_id_and_customer_address_are_kept(): void
@@ -241,13 +240,11 @@ class OrderSyncTest extends TestCase
             'POSTCODE' => '3337',
         ]);
 
-        app(OrderSync::class)->sync();
+        $order = app(OrderSync::class)->lines()->sole();
 
-        $order = SalesOrder::query()->sole();
-
-        $this->assertSame('173079', $order->erp_line_reference);
-        $this->assertSame('LOGCIT', $order->customer_name);
-        $this->assertSame('12 Yard Road, Melton, VIC, 3337', $order->delivery_address);
+        $this->assertSame('173079', $order['erp_line_reference']);
+        $this->assertSame('LOGCIT', $order['customer_name']);
+        $this->assertSame('12 Yard Road, Melton, VIC, 3337', $order['delivery_address']);
     }
 
     /**
@@ -263,17 +260,14 @@ class OrderSyncTest extends TestCase
             ->addOrderLine('RCPSA', ['UNIQUE_ID' => 1, 'REFERENCE_NBR' => 'SA-N', 'STOCK_CODE' => 'NR0450-4', 'STOCK_LOCATION' => '50'])
             ->addOrderLine('RCPSA', ['UNIQUE_ID' => 2, 'REFERENCE_NBR' => 'SA-V', 'STOCK_CODE' => 'VR0450-4', 'STOCK_LOCATION' => '50']);
 
-        $counts = app(OrderSync::class)->sync()->counts();
+        $sync = app(OrderSync::class);
+        $lines = $sync->lines()->keyBy('erp_order_reference');
 
-        $this->assertSame(2, $counts['routed from a holding yard']);
-
-        $toNsw = SalesOrder::query()->where('erp_order_reference', 'SA-N')->sole();
-        $toVic = SalesOrder::query()->where('erp_order_reference', 'SA-V')->sole();
-
-        $this->assertSame($nswSku->id, $toNsw->sku_master_id);
-        $this->assertSame($this->somersby->id, $toNsw->depot_id);
-        $this->assertSame($vicSku->id, $toVic->sku_master_id);
-        $this->assertSame($this->melton->id, $toVic->depot_id);
+        $this->assertSame(2, $sync->result()->counts()['routed from a holding yard']);
+        $this->assertSame($nswSku->id, $lines['SA-N']['sku_master_id']);
+        $this->assertSame($this->somersby->id, $lines['SA-N']['depot_id']);
+        $this->assertSame($vicSku->id, $lines['SA-V']['sku_master_id']);
+        $this->assertSame($this->melton->id, $lines['SA-V']['depot_id']);
     }
 
     /**
@@ -286,11 +280,11 @@ class OrderSyncTest extends TestCase
             'REFERENCE_NBR' => 'SA-W', 'STOCK_CODE' => 'WR0375-4-NOR-P', 'STOCK_LOCATION' => '50',
         ]);
 
-        $result = app(OrderSync::class)->sync();
+        $sync = app(OrderSync::class);
 
-        $this->assertSame(1, $result->counts()['skipped (sourced from the closing plant)']);
-        $this->assertStringContainsString('RCPWA', implode(' ', $result->rejects()));
-        $this->assertSame(0, SalesOrder::query()->count());
+        $this->assertCount(0, $sync->lines());
+        $this->assertSame(1, $sync->result()->counts()['skipped (sourced from the closing plant)']);
+        $this->assertStringContainsString('RCPWA', implode(' ', $sync->result()->rejects()));
     }
 
     /**
@@ -306,28 +300,15 @@ class OrderSyncTest extends TestCase
             ->addOrderLine('RCPVIC', ['UNIQUE_ID' => 1, 'REFERENCE_NBR' => 'A', 'STOCK_CODE' => 'RR0600', 'STOCK_LOCATION' => '31'])
             ->addOrderLine('RCPVIC', ['UNIQUE_ID' => 2, 'REFERENCE_NBR' => 'B', 'STOCK_CODE' => 'NOT-IN-TENCIA', 'STOCK_LOCATION' => '31']);
 
-        $result = app(OrderSync::class)->sync();
+        $sync = app(OrderSync::class);
+        $sync->lines();
 
-        $this->assertSame(1, $result->counts()['skipped (category VG, not a planned pipe)']);
-        $this->assertSame(1, $result->counts()['skipped (not in Tencia stock master)']);
-        $this->assertStringContainsString('NOT-IN-TENCIA', implode(' ', $result->rejects()));
+        $this->assertSame(1, $sync->result()->counts()['skipped (category VG, not a planned pipe)']);
+        $this->assertSame(1, $sync->result()->counts()['skipped (not in Tencia stock master)']);
+        $this->assertStringContainsString('NOT-IN-TENCIA', implode(' ', $sync->result()->rejects()));
     }
 
-    public function test_re_syncing_replaces_the_order_book_rather_than_doubling_it(): void
-    {
-        $this->sku('RCPVIC', 'R0600-4');
-
-        $this->tencia->addOrderLine('RCPVIC', [
-            'REFERENCE_NBR' => '136510', 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
-        ]);
-
-        app(OrderSync::class)->sync();
-        app(OrderSync::class)->sync();
-
-        $this->assertSame(1, SalesOrder::query()->count());
-    }
-
-    public function test_keeping_existing_orders_leaves_a_manually_loaded_book_in_place(): void
+    public function test_reading_the_order_book_does_not_store_it(): void
     {
         $sku = $this->sku('RCPVIC', 'R0600-4');
 
@@ -340,9 +321,10 @@ class OrderSyncTest extends TestCase
             'REFERENCE_NBR' => '136510', 'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31',
         ]);
 
-        app(OrderSync::class)->sync(replace: false);
+        $lines = app(OrderSync::class)->lines();
 
-        $this->assertSame(2, SalesOrder::query()->count());
+        $this->assertSame(['136510'], $lines->pluck('erp_order_reference')->all());
+        $this->assertSame('FROM-SPREADSHEET', SalesOrder::query()->sole()->erp_order_reference);
     }
 
     private function sku(string $entity, string $code): SkuMaster
