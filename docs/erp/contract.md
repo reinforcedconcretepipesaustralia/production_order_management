@@ -77,13 +77,15 @@ national list:
 
 The 6.00 mm gauge is `WIREDE6.00`, not `WIREPL6.00` as the plan assumed, and only VIC carries it.
 
-### `sync:orders` → `sales_orders`
+### Order book — read live, not imported
 
 `dbo.vwSALES_ORDERS` when readable, otherwise `SOR_LINES` joined `SOR_MASTER` on
-`(REFERENCE_NBR, REFERENCE_DUPLICATE, TRANS_TYPE)` per state database. The order book leaves out
-`STATUS_FLAG = 'C'`, `LINE_STATUS = 'C'`, and lines with `BACKORDER_QTY` of 0. The view has no
-`TRANS_TYPE`; the per-state fallback still requires `TRANS_TYPE = 'DRSOR'` because those tables
-also hold invoices.
+`(REFERENCE_NBR, REFERENCE_DUPLICATE, TRANS_TYPE)` per state database. The planner queries this
+when it builds a plan. The lines are not copied into `sales_orders`.
+
+The order book leaves out `STATUS_FLAG` and `LINE_STATUS` in `C`, `S`, or `X`, and lines with
+`BACKORDER_QTY` of 0. The view has no `TRANS_TYPE`; the per-state fallback still requires
+`TRANS_TYPE = 'DRSOR'` because those tables also hold invoices.
 
 `LINE_UNIQUE_ID` is the natural key on the view (`UNIQUE_ID` on the per-state fallback).
 `BACKORDER_QTY` is the quantity still to make. `LINE_DELIVERY_DATE`
