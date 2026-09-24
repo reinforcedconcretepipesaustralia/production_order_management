@@ -19,11 +19,10 @@ The consolidated `TenciaRCP_View` is preferred, but two gaps force a per-state f
 
 | Gap | Why the view fails | Fallback |
 |---|---|---|
-| Pipe stock on hand | `vwSTOCK_ON_HAND` holds only categories `?G` (rings, sandbands, caps) and `?H` (seconds) — 142 rows, **no pipes** | `STK_LOCN_MASTER` |
 | Order book | `vwSALES_ORDERS` is readable (confirmed 23 September 2026). `SOR_LINES` + `SOR_MASTER` remain the fallback if that view stops answering | `SOR_LINES` + `SOR_MASTER` |
 
-Raise a widened `vwSTOCK_ON_HAND` with the view owner so stock can join the consolidated database.
-Until then `sync:stock` is written against the per-state fallback.
+`vwSTOCK_ON_HAND` now includes pipe categories (634 rows on 24 September 2026). Stock is read live
+from that view.
 
 The **future order book** is `dbo.vwSALES_ORDERS` (`VwSALESORDERSView`). **Invoiced** pipes
 and credit notes are `dbo.vwSALES` (`VwSALESView`, `DRINV` / `DRCDT`) and are not the order book.
@@ -94,13 +93,15 @@ per-state fallback aliases `SOR_LINES.DELIVERY_DATE` to that name.
 
 Live through the fallback on 22 September 2026: VIC 2,517 open lines, NSW 1,607, QLD 2,262, SA 115.
 
-This is not invoiced history. Completed invoices and credits are `sync:sales-history` from
-`dbo.vwSALES`.
+This is not invoiced history. Completed invoices and credits are read live from `dbo.vwSALES`.
 
-### `sync:stock` → `inventory_sohs`
+### Stock — read live from `dbo.vwSTOCK_ON_HAND`
 
-`STK_LOCN_MASTER` per state database, keyed `(STOCK_CODE, STOCK_LOCATION)`. Use `ON_HAND_QTY`,
-`ALLOCATED_QTY`, `BACKORDER_QTY`, `AVAILABLE_QTY`. Quantities go negative and that is not an error.
+Confirmed 24 September 2026: 634 rows, including pipe categories `VA`, `NA`, `YA`, `VD`, `ND`,
+`YB`. Column names have spaces (`Stock Code`, `Location Code`, `Qty On Hand`). Quantities go
+negative and that is not an error; they are floored at nothing on hand for planning.
+
+The planner queries this when it builds a plan. The lines are not copied into `inventory_soh`.
 
 Locations, confirmed live. Ownership and kind come from `depots`, which `Depot::stockKindFor()` reads:
 
@@ -118,16 +119,25 @@ Locations, confirmed live. Ownership and kind come from `depots`, which `Depot::
 
 VIC `33` alone holds 5,151 pipes of rework — large enough that netting it against demand matters.
 
-### `sync:sales-history` → `sales_history_monthly`
+### Sales history — read live from `dbo.vwSALES`
 
 `dbo.vwSALES` (116,586 rows). These are **invoiced** pipes, not the future order book.
 `TRANS_TYPE` is `DRINV` (113,642) or `DRCDT` (2,944, credits — subtract them). Covers 22 September
 2023 to today, so R12M is available for every state and R3M/R6M are safe. Note `DATE` is a reserved
-word; bracket it.
+word; bracket it. The planner queries this when it builds a plan. Nothing is stored locally.
 
-### `sync:production-actuals` → `production_actuals`
+### Product master — read from `dbo.vwSTK_MASTER`
 
-`dbo.vwProduction` (328,417 rows).
+`dbo.vwSTK_MASTER` is the product catalog. Local `sku_master` is kept only as the planning overlay
+(run rate, machine preference, months of cover, and the id schedules point at). `sync:products`
+refreshes that overlay from the view.
+
+### Production history — read live from `dbo.vwProduction`
+
+`dbo.vwProduction` (328,417 rows). The planner (and `sync:production-history`) query this
+when they need closed runs. The rows are not copied into a local `production_history` table.
+
+This is not `production_actuals`, which records what came of one of *our* plan lines.
 
 **The view is BOM-exploded**: one row per production order *per component*, up to 24 rows for a
 single order. `GOOD_PIPES`, `REJECTED_PIPES` and `BILL_TONNES_PRODUCED` are header values repeated
@@ -139,7 +149,7 @@ unique — the same number recurs with a different duplicate and a different goo
 row per key.
 
 `GOOD_PIPES` and `REJECTED_PIPES` are supplied directly, so the `USER_FIELD_1`/`USER_FIELD_2`
-parsing the plan expected is not needed. Import `STATUS = 'Order Completed'` only; the other statuses
+parsing the plan expected is not needed. Read `STATUS = 'Order Completed'` only; the other statuses
 are `Allocated Stock`, `Backordered Stock`, `Partly Completed` and `Cancelled`. `TRANS_TYPE` is
 `BMORD`, or `BMRET` (758 rows) for returns.
 
