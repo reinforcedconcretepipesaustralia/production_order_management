@@ -5,12 +5,10 @@ namespace Tests\Feature\Api\V1;
 use App\Enums\AppRole;
 use App\Exceptions\InvalidOrderAllocationException;
 use App\Models\Depot;
-use App\Models\InventorySoh;
 use App\Models\MachineAsset;
 use App\Models\MouldAsset;
 use App\Models\OrderAllocation;
 use App\Models\ProductionSchedule;
-use App\Models\SalesOrder;
 use App\Models\Shift;
 use App\Models\SkuMaster;
 use App\Models\SkuWireRequirement;
@@ -18,11 +16,13 @@ use App\Models\SteelForecast;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Fixtures\SeedsLiveOrderBook;
 use Tests\TestCase;
 
 class SchedulerCalculationsApiTest extends TestCase
 {
     use LazilyRefreshDatabase;
+    use SeedsLiveOrderBook;
 
     #[DataProvider('endpointRoutes')]
     public function test_requires_authentication_for_every_endpoint(string $routeName): void
@@ -179,14 +179,14 @@ class SchedulerCalculationsApiTest extends TestCase
 
     public function test_dispatcher_allocates_fifo_stock_for_an_assigned_depot(): void
     {
-        $depot = Depot::factory()->create();
-        $sku = SkuMaster::factory()->create();
-        $order = SalesOrder::factory()->for($depot)->for($sku, 'sku')->create([
-            'ordered_quantity' => 5,
-            'allocated_quantity' => 0,
-            'status' => 'open',
+        $this->installLiveOrderBook();
+        $depot = Depot::factory()->create([
+            'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['31'],
         ]);
-        InventorySoh::factory()->for($depot)->for($sku, 'sku')->create(['prime_quantity' => 5]);
+        $sku = SkuMaster::factory()->create(['erp_entity_code' => 'RCPVIC']);
+        $this->liveOrder($depot, $sku, 5, '2026-09-20');
+        $this->liveStock($depot, $sku, 5);
         $user = $this->depotUser(AppRole::LogisticsDispatcher, $depot);
 
         $this->actingAs($user)
@@ -198,7 +198,7 @@ class SchedulerCalculationsApiTest extends TestCase
             ->assertJsonPath('data.allocated_quantity', 5)
             ->assertJsonPath('data.unfulfilled_quantity', 0)
             ->assertJsonCount(1, 'data.allocation_ids');
-        $this->assertSame(5, $order->fresh()->allocated_quantity);
+        $this->assertSame(5, (int) OrderAllocation::query()->sum('quantity'));
     }
 
     public function test_dispatcher_cannot_allocate_fifo_for_an_unassigned_depot(): void
@@ -214,14 +214,14 @@ class SchedulerCalculationsApiTest extends TestCase
 
     public function test_fifo_allocation_returns_a_safe_domain_conflict(): void
     {
-        $depot = Depot::factory()->create();
-        $sku = SkuMaster::factory()->create();
-        SalesOrder::factory()->for($depot)->for($sku, 'sku')->create([
-            'ordered_quantity' => 1,
-            'allocated_quantity' => 0,
-            'status' => 'open',
+        $this->installLiveOrderBook();
+        $depot = Depot::factory()->create([
+            'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['31'],
         ]);
-        InventorySoh::factory()->for($depot)->for($sku, 'sku')->create(['prime_quantity' => 1]);
+        $sku = SkuMaster::factory()->create(['erp_entity_code' => 'RCPVIC']);
+        $this->liveOrder($depot, $sku, 1, '2026-09-20');
+        $this->liveStock($depot, $sku, 1);
         OrderAllocation::creating(
             fn (): never => throw new InvalidOrderAllocationException('Internal allocation detail.'),
         );

@@ -15,13 +15,20 @@ class OrderAllocationFactory extends Factory
         return $this->afterCreating(function (OrderAllocation $allocation): void {
             $allocation->loadMissing('salesOrder');
 
+            $depotId = $allocation->depot_id ?? $allocation->salesOrder?->depot_id;
+            $skuId = $allocation->sku_master_id ?? $allocation->salesOrder?->sku_master_id;
+
+            if ($depotId === null || $skuId === null) {
+                return;
+            }
+
             $allocation->inventory?->update([
-                'depot_id' => $allocation->salesOrder->depot_id,
-                'sku_master_id' => $allocation->salesOrder->sku_master_id,
+                'depot_id' => $depotId,
+                'sku_master_id' => $skuId,
             ]);
             $allocation->productionSchedule?->update([
-                'depot_id' => $allocation->salesOrder->depot_id,
-                'sku_master_id' => $allocation->salesOrder->sku_master_id,
+                'depot_id' => $depotId,
+                'sku_master_id' => $skuId,
             ]);
         });
     }

@@ -4,7 +4,6 @@ namespace App\Services\Planning;
 
 use App\Models\Depot;
 use App\Models\InventorySoh;
-use App\Models\SalesHistoryMonthly;
 use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Support\Excel\XlsxReader;
@@ -13,15 +12,11 @@ use Illuminate\Support\Collection;
 use RuntimeException;
 
 /**
- * Loads the order book, stock on hand and monthly sales from a 'Pipes to Manufacture' workbook.
+ * Loads the order book and stock on hand from a 'Pipes to Manufacture' workbook.
  *
  * The same stopgap as the BOM import, for the same reason: the SQL host is only reachable from
  * the corporate network, and a planner cannot see a plan without demand to plan against. The
- * Tencia sync supersedes all of it.
- *
- * Monthly sales come from the 'Pipes to manufacture' tab rather than the 16,000-row sales
- * extract, because that tab already holds twelve months of eaches per product with the month
- * dates in its header — the aggregation this app needs, already done.
+ * Tencia sync supersedes all of it. Monthly sales are read live from dbo.vwSALES.
  */
 final class WorkbookDemandImporter
 {
@@ -52,7 +47,6 @@ final class WorkbookDemandImporter
         return [
             'orders' => $this->importOrders($reader, $depots, $skus),
             'stock rows' => $this->importStock($reader, $depots, $skus),
-            'sales months' => $this->importSalesHistory($reader, $depots, $skus),
         ];
     }
 
@@ -65,7 +59,6 @@ final class WorkbookDemandImporter
 
         SalesOrder::query()->whereIn('depot_id', $depotIds)->delete();
         InventorySoh::query()->whereIn('depot_id', $depotIds)->delete();
-        SalesHistoryMonthly::query()->whereIn('depot_id', $depotIds)->delete();
     }
 
     /**
@@ -203,84 +196,6 @@ final class WorkbookDemandImporter
         }
 
         return count($totals);
-    }
-
-    /**
-     * Twelve months of eaches per product, read straight off the 'Pipes to manufacture' tab
-     * where the month dates sit in the header above each column.
-     *
-     * @param  Collection<int, Depot>  $depots
-     * @param  Collection<string, int>  $skus
-     */
-    private function importSalesHistory(XlsxReader $reader, Collection $depots, Collection $skus): int
-    {
-        $sheet = $this->sheetNamed($reader, ['Pipes to manufacture', 'Pipes to Manufacture']);
-
-        if ($sheet === null) {
-            return 0;
-        }
-
-        $months = [];
-        $rows = [];
-        $inData = false;
-
-        foreach ($reader->rows($sheet) as $cells) {
-            // The month serials sit in the header block, on the row above the 'Product Code'
-            // label that marks where the products start. Anchoring on that label is steadier
-            // than counting month columns, which varies between the files.
-            if (! $inData) {
-                foreach ($cells as $column => $value) {
-                    if (! is_numeric($value)) {
-                        continue;
-                    }
-
-                    $date = XlsxReader::serialToDate($value);
-
-                    if ($date !== null && str_ends_with($date, '-01')) {
-                        $months[$column] = $date;
-                    }
-                }
-
-                if (strcasecmp(trim($cells['A'] ?? ''), 'Product Code') === 0 || count($months) >= 6) {
-                    $inData = true;
-                }
-
-                continue;
-            }
-
-            $code = trim($cells['A'] ?? '');
-
-            if ($code === '' || ! $skus->has($code)) {
-                continue;
-            }
-
-            $depotId = $this->depotFor($depots, $code)->id;
-
-            foreach ($months as $column => $month) {
-                $quantity = (int) round((float) ($cells[$column] ?? 0));
-
-                if ($quantity === 0) {
-                    continue;
-                }
-
-                $rows[] = [
-                    'depot_id' => $depotId,
-                    'sku_master_id' => $skus[$code],
-                    'month' => $month,
-                    'quantity_ea' => $quantity,
-                    'tonnes' => 0,
-                    'net_value_ex_tax' => 0,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ];
-            }
-        }
-
-        foreach (array_chunk($rows, 500) as $chunk) {
-            SalesHistoryMonthly::query()->upsert($chunk, ['depot_id', 'sku_master_id', 'month']);
-        }
-
-        return count($rows);
     }
 
     /**

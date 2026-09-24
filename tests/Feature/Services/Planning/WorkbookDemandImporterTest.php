@@ -5,7 +5,6 @@ namespace Tests\Feature\Services\Planning;
 use App\Models\Depot;
 use App\Models\InventorySoh;
 use App\Models\MachineAsset;
-use App\Models\SalesHistoryMonthly;
 use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Services\Planning\WorkbookDemandImporter;
@@ -99,22 +98,6 @@ class WorkbookDemandImporterTest extends TestCase
         $this->assertSame(2, InventorySoh::query()->where('depot_id', $this->melton->id)->count());
     }
 
-    public function test_imports_monthly_sales_from_the_pipes_to_manufacture_tab(): void
-    {
-        SkuMaster::factory()->create(['sku_code' => 'R0375-4', 'erp_entity_code' => 'RCPVIC', 'machine_preference' => 'BiDi 84']);
-
-        $counts = $this->import();
-
-        $this->assertSame(2, $counts['sales months']);
-
-        $months = SalesHistoryMonthly::query()->orderBy('month')->get();
-
-        $this->assertSame('2026-08-01', $months[0]->month->toDateString());
-        $this->assertSame(210, $months[0]->quantity_ea);
-        $this->assertSame('2026-09-01', $months[1]->month->toDateString());
-        $this->assertSame(180, $months[1]->quantity_ea);
-    }
-
     public function test_products_not_in_the_sku_master_are_skipped(): void
     {
         // Nothing seeded, so the workbook's product is unknown to the app.
@@ -122,7 +105,6 @@ class WorkbookDemandImporterTest extends TestCase
 
         $this->assertSame(0, $counts['orders']);
         $this->assertSame(0, $counts['stock rows']);
-        $this->assertSame(0, $counts['sales months']);
     }
 
     public function test_re_importing_replaces_rather_than_doubling_demand(): void
@@ -134,7 +116,6 @@ class WorkbookDemandImporterTest extends TestCase
 
         $this->assertSame(1, SalesOrder::query()->count());
         $this->assertSame(2, InventorySoh::query()->count());
-        $this->assertSame(2, SalesHistoryMonthly::query()->count());
         $this->assertSame(4288, SalesOrder::query()->sole()->ordered_quantity);
     }
 
@@ -177,11 +158,6 @@ class WorkbookDemandImporterTest extends TestCase
                 ],
                 2 => ['A' => 'R0375-4', 'F' => '31', 'G' => 120, 'K' => 'Good'],
                 3 => ['A' => 'R0375-4', 'F' => '33', 'G' => 15, 'K' => 'Rework'],
-            ])
-            ->withSheet('Pipes to manufacture', [
-                5 => ['M' => self::AUG_2026, 'N' => self::SEP_2026],
-                6 => ['A' => 'Product Code'],
-                7 => ['A' => 'R0375-4', 'M' => 210, 'N' => 180],
             ])
             ->write(tempnam(sys_get_temp_dir(), 'ptm').'.xlsx');
     }

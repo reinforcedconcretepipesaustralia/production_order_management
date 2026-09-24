@@ -36,4 +36,36 @@ trait SeedsLiveOrderBook
             'REFERENCE_NBR' => $sku->sku_code.'-'.$due.'-'.$remainder,
         ]);
     }
+
+    protected function liveSale(Depot $depot, SkuMaster $sku, string $date, int $quantity, string $type = 'DRINV'): void
+    {
+        $entity = (string) $depot->erp_entity_code;
+
+        if ($sku->erp_entity_code !== $entity) {
+            $sku->forceFill(['erp_entity_code' => $entity])->save();
+        }
+
+        $this->orderBookSource->addSale([
+            'ENTITY' => $entity,
+            'STOCK_CODE' => $sku->sku_code,
+            'DATE' => $date.' 00:00:00',
+            'QUANTITY' => $quantity,
+            'TRANS_TYPE' => $type,
+        ]);
+    }
+
+    protected function liveStock(Depot $depot, SkuMaster $sku, int $quantity, string $location = '31'): void
+    {
+        $entity = (string) $depot->erp_entity_code;
+
+        if ($sku->erp_entity_code !== $entity) {
+            $sku->forceFill(['erp_entity_code' => $entity])->save();
+        }
+
+        $this->orderBookSource->addStock($entity, [
+            'STOCK_CODE' => $sku->sku_code,
+            'STOCK_LOCATION' => $location,
+            'ON_HAND_QTY' => $quantity,
+        ]);
+    }
 }

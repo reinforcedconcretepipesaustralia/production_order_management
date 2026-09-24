@@ -3,6 +3,7 @@
 namespace App\Services\Sync;
 
 use App\Models\Depot;
+use App\Models\OrderAllocation;
 use App\Models\SkuMaster;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -24,6 +25,7 @@ final class OrderSync
     public function __construct(
         private TenciaSource $source,
         private HoldingYardRouter $router,
+        private ProductSync $products,
     ) {}
 
     /**
@@ -40,7 +42,7 @@ final class OrderSync
         $result = new SyncResult;
         $depotsByLocation = $this->source->depotsByStockLocation();
         $depotsByEntity = Depot::query()->whereNotNull('erp_entity_code')->get()->groupBy('erp_entity_code');
-        $skus = $this->skusByEntityAndCode();
+        $skus = $this->products->byEntityAndCode();
         $categories = $this->categoriesByEntityAndCode();
 
         $rows = [];
@@ -57,7 +59,7 @@ final class OrderSync
 
         $this->lastResult = $result;
 
-        return $this->openOrders = collect($rows);
+        return $this->openOrders = $this->withLocalAllocations(collect($rows));
     }
 
     public function result(): SyncResult
@@ -119,7 +121,8 @@ final class OrderSync
             return null;
         }
 
-        $sku = $skus->get($supplying.'|'.$route->stockCode);
+        $sku = $skus->get($supplying.'|'.$route->stockCode)
+            ?? $this->products->find($supplying, $route->stockCode);
 
         if ($sku === null) {
             // Most of these are accessories a pipe order carries — rubber rings, sand bands, caps —
@@ -163,6 +166,8 @@ final class OrderSync
         return [
             'depot_id' => $depot->id,
             'sku_master_id' => $sku->id,
+            'erp_entity_code' => $supplying,
+            'stock_location' => trim((string) $line->STOCK_LOCATION),
             'erp_order_reference' => (string) $line->REFERENCE_NBR,
             // LINE_UNIQUE_ID identifies the line for good, unlike a line number that can be renumbered.
             // The per-state fallback still calls that key UNIQUE_ID.
@@ -227,14 +232,33 @@ final class OrderSync
     }
 
     /**
-     * @return Collection<string, SkuMaster> Keys are "ENTITY|STOCK_CODE".
+     * @param  Collection<int, array<string, mixed>>  $rows
+     * @return Collection<int, array<string, mixed>>
      */
-    private function skusByEntityAndCode(): Collection
+    private function withLocalAllocations(Collection $rows): Collection
     {
-        return SkuMaster::query()
-            ->whereNotNull('erp_entity_code')
-            ->get(['id', 'sku_code', 'erp_entity_code', 'diameter_mm'])
-            ->keyBy(fn (SkuMaster $sku): string => $sku->erp_entity_code.'|'.$sku->sku_code);
+        if ($rows->isEmpty()) {
+            return $rows;
+        }
+
+        $allocated = OrderAllocation::query()
+            ->whereIn('status', ['allocated', 'reserved'])
+            ->whereNotNull('erp_line_reference')
+            ->get(['erp_entity_code', 'erp_line_reference', 'quantity'])
+            ->groupBy(fn (OrderAllocation $allocation): string => $allocation->erp_entity_code.'|'.$allocation->erp_line_reference)
+            ->map(fn (Collection $group): int => (int) $group->sum('quantity'));
+
+        return $rows->map(function (array $row) use ($allocated): array {
+            $quantity = (int) $allocated->get($row['erp_entity_code'].'|'.$row['erp_line_reference'], 0);
+            $row['allocated_quantity'] = $quantity;
+            $row['status'] = match (true) {
+                $quantity >= $row['ordered_quantity'] => 'allocated',
+                $quantity > 0 => 'partially_allocated',
+                default => 'open',
+            };
+
+            return $row;
+        });
     }
 
     private function deliveryAddress(object $line): string

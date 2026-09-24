@@ -4,118 +4,120 @@ namespace Tests\Feature\Services\Scheduling;
 
 use App\Exceptions\InvalidOrderAllocationException;
 use App\Models\Depot;
-use App\Models\InventorySoh;
 use App\Models\OrderAllocation;
 use App\Models\ProductionSchedule;
-use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Services\Scheduling\FifoAllocationService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Tests\Fixtures\SeedsLiveOrderBook;
 use Tests\TestCase;
 
 class FifoAllocationServiceTest extends TestCase
 {
     use LazilyRefreshDatabase;
+    use SeedsLiveOrderBook;
+
+    private Depot $depot;
+
+    private SkuMaster $sku;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->installLiveOrderBook();
+        $this->depot = Depot::factory()->create([
+            'erp_entity_code' => 'RCPVIC',
+            'prime_stock_locations' => ['31'],
+        ]);
+        $this->sku = SkuMaster::factory()->create(['erp_entity_code' => 'RCPVIC']);
+    }
 
     public function test_allocates_only_prime_stock_in_order_and_delivery_fifo_order(): void
     {
-        $depot = Depot::factory()->create();
-        $sku = SkuMaster::factory()->create();
-        $oldest = $this->createOrder($depot, $sku, '2026-09-01 08:00:00', '2026-09-20');
-        $laterDelivery = $this->createOrder($depot, $sku, '2026-09-02 08:00:00', '2026-09-25');
-        $earlierDelivery = $this->createOrder($depot, $sku, '2026-09-02 08:00:00', '2026-09-22');
-        $inventory = InventorySoh::factory()->for($depot)->for($sku, 'sku')->create([
-            'prime_quantity' => 12,
-            'rework_quantity' => 100,
-            'quarantine_quantity' => 100,
-        ]);
+        $oldest = $this->createOrder('2026-09-01 08:00:00', '2026-09-20');
+        $laterDelivery = $this->createOrder('2026-09-02 08:00:00', '2026-09-25');
+        $earlierDelivery = $this->createOrder('2026-09-02 08:00:00', '2026-09-22');
+        $this->liveStock($this->depot, $this->sku, 12);
 
-        $result = (new FifoAllocationService)->allocatePrimeStock($depot, $sku);
+        $result = app(FifoAllocationService::class)->allocatePrimeStock($this->depot, $this->sku);
 
         $this->assertSame(12, $result->allocatedQuantity);
         $this->assertSame(3, $result->unfulfilledQuantity);
-        $this->assertSame(0, $inventory->fresh()->prime_quantity);
-        $this->assertSame(100, $inventory->fresh()->rework_quantity);
-        $this->assertSame(100, $inventory->fresh()->quarantine_quantity);
-        $this->assertSame(5, $oldest->fresh()->allocated_quantity);
-        $this->assertSame(2, $laterDelivery->fresh()->allocated_quantity);
-        $this->assertSame(5, $earlierDelivery->fresh()->allocated_quantity);
         $this->assertSame(
-            [$oldest->id, $earlierDelivery->id, $laterDelivery->id],
-            OrderAllocation::query()->orderBy('id')->pluck('sales_order_id')->all(),
+            [$oldest, $earlierDelivery, $laterDelivery],
+            OrderAllocation::query()->orderBy('id')->pluck('erp_line_reference')->all(),
         );
-        $this->assertSame(
-            [$inventory->id, $inventory->id, $inventory->id],
-            OrderAllocation::query()->orderBy('id')->pluck('inventory_soh_id')->all(),
-        );
+        $this->assertSame(['31', '31', '31'], OrderAllocation::query()->orderBy('id')->pluck('stock_location')->all());
+        $this->assertSame(0, OrderAllocation::query()->whereNotNull('inventory_soh_id')->count());
     }
 
     public function test_never_allocates_other_depot_or_sku_and_cannot_over_allocate_on_repeat(): void
     {
-        $depot = Depot::factory()->create();
-        $otherDepot = Depot::factory()->create();
-        $sku = SkuMaster::factory()->create();
-        $otherSku = SkuMaster::factory()->create();
-        $order = $this->createOrder($depot, $sku, '2026-09-01 08:00:00', '2026-09-20', 4);
-        $this->createOrder($otherDepot, $sku, '2026-08-01 08:00:00', '2026-09-10', 10);
-        $this->createOrder($depot, $otherSku, '2026-08-01 08:00:00', '2026-09-10', 10);
-        InventorySoh::factory()->for($depot)->for($sku, 'sku')->create(['prime_quantity' => 20]);
+        $otherDepot = Depot::factory()->create([
+            'erp_entity_code' => 'RCPNSW',
+            'prime_stock_locations' => ['MAIN'],
+        ]);
+        $otherSku = SkuMaster::factory()->create(['erp_entity_code' => 'RCPVIC']);
+        $this->createOrder('2026-09-01 08:00:00', '2026-09-20', 4);
+        $nswSku = SkuMaster::factory()->create(['erp_entity_code' => 'RCPNSW']);
+        $this->liveOrder($otherDepot, $nswSku, 10, '2026-09-10', location: 'MAIN');
+        $this->liveOrder($this->depot, $otherSku, 10, '2026-09-10');
+        $this->liveStock($this->depot, $this->sku, 20);
 
-        $first = (new FifoAllocationService)->allocatePrimeStock($depot, $sku);
-        $second = (new FifoAllocationService)->allocatePrimeStock($depot, $sku);
+        $first = app(FifoAllocationService::class)->allocatePrimeStock($this->depot, $this->sku);
+        $second = app(FifoAllocationService::class)->allocatePrimeStock($this->depot, $this->sku);
 
         $this->assertSame(4, $first->allocatedQuantity);
         $this->assertSame(0, $first->unfulfilledQuantity);
         $this->assertSame(0, $second->allocatedQuantity);
         $this->assertSame(0, $second->unfulfilledQuantity);
-        $this->assertSame(4, $order->fresh()->allocated_quantity);
-        $this->assertSame(4, OrderAllocation::query()->sum('quantity'));
+        $this->assertSame(4, (int) OrderAllocation::query()->sum('quantity'));
     }
 
     public function test_reserves_compatible_scheduled_production_after_prime_stock_without_over_reserving(): void
     {
-        $depot = Depot::factory()->create();
-        $sku = SkuMaster::factory()->create();
-        $closedOrder = $this->createOrder($depot, $sku, '2026-08-01 08:00:00', '2026-09-15', 1);
-        $closedOrder->update(['allocated_quantity' => 1, 'status' => 'allocated']);
-        $targetOrder = $this->createOrder($depot, $sku, '2026-09-01 08:00:00', '2026-09-20', 10);
+        $this->createOrder('2026-09-01 08:00:00', '2026-09-20', 10);
         $compatibleSchedule = ProductionSchedule::factory()
-            ->for($depot)
-            ->for($sku, 'sku')
+            ->for($this->depot)
+            ->for($this->sku, 'sku')
             ->create([
                 'schedule_date' => '2026-09-18',
                 'planned_quantity' => 4,
                 'status' => 'planned',
             ]);
         ProductionSchedule::factory()
-            ->for($depot)
-            ->for($sku, 'sku')
+            ->for($this->depot)
+            ->for($this->sku, 'sku')
             ->create([
                 'schedule_date' => '2026-09-21',
                 'planned_quantity' => 20,
                 'status' => 'planned',
             ]);
         OrderAllocation::factory()
-            ->for($closedOrder)
             ->for($compatibleSchedule, 'productionSchedule')
             ->create([
+                'sales_order_id' => null,
                 'inventory_soh_id' => null,
+                'depot_id' => $this->depot->id,
+                'sku_master_id' => $this->sku->id,
+                'erp_entity_code' => 'RCPVIC',
+                'erp_line_reference' => 'CLOSED',
                 'quantity' => 1,
                 'status' => 'reserved',
             ]);
-        $inventory = InventorySoh::factory()->for($depot)->for($sku, 'sku')->create(['prime_quantity' => 3]);
+        $this->liveStock($this->depot, $this->sku, 3);
 
-        $result = (new FifoAllocationService)->allocateInventoryAndProduction($depot, $sku);
+        $result = app(FifoAllocationService::class)->allocateInventoryAndProduction($this->depot, $this->sku);
 
         $this->assertSame(6, $result->allocatedQuantity);
         $this->assertSame(4, $result->unfulfilledQuantity);
-        $this->assertSame(6, $targetOrder->fresh()->allocated_quantity);
         $this->assertSame(3, OrderAllocation::query()
-            ->where('sales_order_id', $targetOrder->id)
-            ->where('inventory_soh_id', $inventory->id)
+            ->where('erp_line_reference', '!=', 'CLOSED')
+            ->whereNotNull('stock_location')
             ->sum('quantity'));
         $this->assertSame(3, OrderAllocation::query()
-            ->where('sales_order_id', $targetOrder->id)
+            ->where('erp_line_reference', '!=', 'CLOSED')
             ->where('production_schedule_id', $compatibleSchedule->id)
             ->where('status', 'reserved')
             ->sum('quantity'));
@@ -128,20 +130,19 @@ class FifoAllocationServiceTest extends TestCase
         OrderAllocation::factory()->create([
             'inventory_soh_id' => null,
             'production_schedule_id' => null,
+            'stock_location' => null,
         ]);
     }
 
-    private function createOrder(
-        Depot $depot,
-        SkuMaster $sku,
-        string $orderedAt,
-        string $deliveryDate,
-        int $quantity = 5,
-    ): SalesOrder {
-        return SalesOrder::factory()->for($depot)->for($sku, 'sku')->create([
-            'ordered_quantity' => $quantity,
-            'ordered_at' => $orderedAt,
-            'requested_delivery_date' => $deliveryDate,
-        ]);
+    private function createOrder(string $orderedAt, string $deliveryDate, int $quantity = 5): string
+    {
+        $this->liveOrder($this->depot, $this->sku, $quantity, $deliveryDate, location: '31');
+
+        $line = $this->orderBookSource->openSalesOrderLines('RCPVIC')
+            ->where('LINE_DELIVERY_DATE', $deliveryDate.' 00:00:00')
+            ->orderByDesc('UNIQUE_ID')
+            ->first();
+
+        return (string) ($line->LINE_UNIQUE_ID ?? $line->UNIQUE_ID);
     }
 }

@@ -11,7 +11,7 @@ use Illuminate\Console\Command;
  */
 class SyncAllCommand extends Command
 {
-    protected $signature = 'sync:all {--months=24 : How far back to load history.}';
+    protected $signature = 'sync:all';
 
     protected $description = 'Run every Tencia sync in dependency order';
 
@@ -19,9 +19,6 @@ class SyncAllCommand extends Command
     private const ORDER = [
         'sync:products' => [],
         'sync:bom' => [],
-        'sync:stock' => [],
-        'sync:sales-history' => ['--months'],
-        'sync:production-history' => ['--months'],
     ];
 
     public function handle(): int

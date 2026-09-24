@@ -9,7 +9,7 @@ class SyncProductionHistoryCommand extends SyncCommand
 {
     protected $signature = 'sync:production-history {--months=24 : How far back to load.}';
 
-    protected $description = 'Import closed production runs from Tencia';
+    protected $description = 'Count live closed production runs. They are read from Tencia when needed and are not stored.';
 
     public function __construct(private ProductionHistorySync $sync)
     {
@@ -23,6 +23,8 @@ class SyncProductionHistoryCommand extends SyncCommand
 
     protected function runSync(): SyncResult
     {
-        return $this->sync->sync((int) $this->option('months'));
+        $this->sync->runs((int) $this->option('months'));
+
+        return $this->sync->result();
     }
 }

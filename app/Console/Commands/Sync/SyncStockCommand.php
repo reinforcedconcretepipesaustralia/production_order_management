@@ -9,7 +9,7 @@ class SyncStockCommand extends SyncCommand
 {
     protected $signature = 'sync:stock';
 
-    protected $description = 'Import stock on hand per plant from Tencia, split prime/rework/quarantine';
+    protected $description = 'Count live stock on hand. It is read from Tencia when a plan is built and is not stored.';
 
     public function __construct(private StockSync $sync)
     {
@@ -23,6 +23,8 @@ class SyncStockCommand extends SyncCommand
 
     protected function runSync(): SyncResult
     {
-        return $this->sync->sync();
+        $this->sync->positions();
+
+        return $this->sync->result();
     }
 }

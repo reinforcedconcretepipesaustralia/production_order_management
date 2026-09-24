@@ -16,7 +16,8 @@ class OrderAllocation extends Model
 
     protected $fillable = [
         'sales_order_id', 'inventory_soh_id', 'production_schedule_id', 'quantity',
-        'allocated_at', 'status',
+        'allocated_at', 'status', 'erp_entity_code', 'erp_order_reference',
+        'erp_line_reference', 'stock_location', 'depot_id', 'sku_master_id',
     ];
 
     protected function casts(): array
@@ -27,7 +28,7 @@ class OrderAllocation extends Model
     protected static function booted(): void
     {
         static::saving(function (OrderAllocation $allocation): void {
-            $sourceCount = (int) ($allocation->inventory_soh_id !== null)
+            $sourceCount = (int) ($allocation->inventory_soh_id !== null || filled($allocation->stock_location))
                 + (int) ($allocation->production_schedule_id !== null);
 
             if ($sourceCount !== 1) {
@@ -38,7 +39,7 @@ class OrderAllocation extends Model
                 throw new InvalidOrderAllocationException('Allocation quantity must be greater than zero.');
             }
 
-            if ($allocation->inventory_soh_id !== null && $allocation->status !== 'allocated') {
+            if (($allocation->inventory_soh_id !== null || filled($allocation->stock_location)) && $allocation->status !== 'allocated') {
                 throw new InvalidOrderAllocationException('Inventory allocations must have allocated status.');
             }
 
@@ -51,6 +52,16 @@ class OrderAllocation extends Model
     public function salesOrder(): BelongsTo
     {
         return $this->belongsTo(SalesOrder::class);
+    }
+
+    public function depot(): BelongsTo
+    {
+        return $this->belongsTo(Depot::class);
+    }
+
+    public function sku(): BelongsTo
+    {
+        return $this->belongsTo(SkuMaster::class, 'sku_master_id');
     }
 
     public function productionSchedule(): BelongsTo

@@ -3,128 +3,106 @@
 namespace App\Services\Sync;
 
 use App\Models\Depot;
-use App\Models\InventorySoh;
-use App\Models\SkuMaster;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
  * Stock on hand per plant, split into prime, rework and quarantine.
  *
- * Reads STK_LOCN_MASTER in each state's own database. The consolidated vwSTOCK_ON_HAND cannot serve
- * this: it holds only the rings/sandbands/caps and seconds categories — 142 rows nationally, with no
- * pipes in it at all.
- *
- * Which kind a location holds is configuration on the plant, so a new yard is a data change. The
- * distinction matters because rework is real stock that can cover an order, while quarantine cannot.
+ * Reads dbo.vwSTOCK_ON_HAND. Which kind a location holds is configuration on the plant, so a
+ * new yard is a data change. Rework can cover an order; quarantine cannot. Nothing is written
+ * to the local database.
  */
 final class StockSync
 {
-    public function __construct(private TenciaSource $source) {}
+    private ?SyncResult $lastResult = null;
 
-    public function sync(): SyncResult
+    /** @var Collection<int, array<string, mixed>>|null */
+    private ?Collection $positions = null;
+
+    public function __construct(
+        private TenciaSource $source,
+        private ProductSync $products,
+    ) {}
+
+    /**
+     * Stock positions, read from Tencia and not stored.
+     *
+     * @return Collection<int, array{depot_id: int, sku_master_id: int, stock_location: string, kind: string, on_hand: int}>
+     */
+    public function positions(): Collection
     {
+        if ($this->positions !== null) {
+            return $this->positions;
+        }
+
         $result = new SyncResult;
-        $skus = $this->skusByEntityAndCode();
-        $countedAt = now();
+        $rows = [];
 
         foreach ($this->source->plannedEntities() as $entity) {
             $depots = Depot::query()->where('erp_entity_code', $entity)->get();
 
             if ($depots->isEmpty()) {
-                // A holding yard has no plant, and holds no plant's stock.
                 continue;
             }
 
-            $this->syncEntity($entity, $depots, $skus, $countedAt, $result);
+            foreach ($this->source->stockOnHand($entity)->get() as $row) {
+                $code = trim((string) ($row->{'Stock Code'} ?? $row->STOCK_CODE ?? ''));
+                $location = trim((string) ($row->{'Location Code'} ?? $row->STOCK_LOCATION ?? ''));
+                $sku = $this->products->find($entity, $code);
+
+                if ($sku === null || $location === '') {
+                    continue;
+                }
+
+                $depot = $depots->first(fn (Depot $candidate): bool => $candidate->stockKindFor($location) !== null);
+
+                if ($depot === null) {
+                    $result->count('skipped (location not a plant yard)');
+
+                    continue;
+                }
+
+                $onHand = (float) ($row->{'Qty On Hand'} ?? $row->ON_HAND_QTY ?? 0);
+                $quantity = max(0, (int) round($onHand));
+
+                $rows[] = [
+                    'depot_id' => $depot->id,
+                    'sku_master_id' => $sku->id,
+                    'stock_location' => $location,
+                    'kind' => $depot->stockKindFor($location),
+                    'on_hand' => $quantity,
+                ];
+                $result->count('stock positions');
+
+                if ($onHand < 0) {
+                    $result->count('locations with negative stock in Tencia');
+                }
+            }
         }
 
-        return $result;
+        $this->lastResult = $result;
+
+        return $this->positions = collect($rows);
     }
 
     /**
-     * @param  Collection<int, Depot>  $depots
-     * @param  Collection<string, SkuMaster>  $skus
+     * @return Collection<int, array{prime: int, rework: int}>
      */
-    private function syncEntity(
-        string $entity,
-        Collection $depots,
-        Collection $skus,
-        Carbon $countedAt,
-        SyncResult $result,
-    ): void {
-        $rows = $this->source->stateTable($entity, 'STK_LOCN_MASTER')
-            ->orderBy('STOCK_CODE')
-            ->get(['STOCK_CODE', 'STOCK_LOCATION', 'ON_HAND_QTY', 'ALLOCATED_QTY', 'BACKORDER_QTY']);
-
-        /** @var array<string, array{depot_id: int, sku_master_id: int, prime: int, rework: int, quarantine: int}> $totals */
-        $totals = [];
-
-        foreach ($rows as $row) {
-            $code = trim((string) $row->STOCK_CODE);
-            $location = trim((string) $row->STOCK_LOCATION);
-            $sku = $skus->get($entity.'|'.$code);
-
-            if ($sku === null || $location === '') {
-                continue;
-            }
-
-            $depot = $depots->first(fn (Depot $candidate): bool => $candidate->stockKindFor($location) !== null);
-
-            if ($depot === null) {
-                // Precast and transit yards are not pipe-plant stock.
-                $result->count('skipped (location not a plant yard)');
-
-                continue;
-            }
-
-            $kind = $depot->stockKindFor($location);
-            // Quantities go negative in Tencia and that is not an error, but a negative cannot be
-            // held in an unsigned column, so it is floored at nothing on hand.
-            $quantity = max(0, (int) round((float) $row->ON_HAND_QTY));
-
-            $key = $depot->id.'|'.$sku->id;
-            $totals[$key] ??= [
-                'depot_id' => $depot->id,
-                'sku_master_id' => $sku->id,
-                'prime' => 0,
-                'rework' => 0,
-                'quarantine' => 0,
-            ];
-            $totals[$key][$kind] += $quantity;
-
-            if ($row->ON_HAND_QTY < 0) {
-                $result->count('locations with negative stock in Tencia');
-            }
-        }
-
-        foreach ($totals as $total) {
-            InventorySoh::query()->updateOrCreate(
-                [
-                    'depot_id' => $total['depot_id'],
-                    'sku_master_id' => $total['sku_master_id'],
-                    'bin_location' => 'TENCIA',
-                ],
-                [
-                    'prime_quantity' => $total['prime'],
-                    'rework_quantity' => $total['rework'],
-                    'quarantine_quantity' => $total['quarantine'],
-                    'counted_at' => $countedAt,
-                ],
-            );
-
-            $result->count('stock positions');
-        }
-    }
-
-    /**
-     * @return Collection<string, SkuMaster> Keys are "ENTITY|STOCK_CODE".
-     */
-    private function skusByEntityAndCode(): Collection
+    public function forDepot(Depot $depot): Collection
     {
-        return SkuMaster::query()
-            ->whereNotNull('erp_entity_code')
-            ->get(['id', 'sku_code', 'erp_entity_code'])
-            ->keyBy(fn (SkuMaster $sku): string => $sku->erp_entity_code.'|'.$sku->sku_code);
+        return $this->positions()
+            ->filter(fn (array $row): bool => $row['depot_id'] === $depot->id)
+            ->groupBy('sku_master_id')
+            ->map(fn (Collection $skuRows): array => [
+                'prime' => (int) $skuRows->where('kind', 'prime')->sum('on_hand'),
+                'rework' => (int) $skuRows->where('kind', 'rework')->sum('on_hand'),
+            ]);
+    }
+
+    public function result(): SyncResult
+    {
+        $this->positions();
+
+        return $this->lastResult ?? new SyncResult;
     }
 }

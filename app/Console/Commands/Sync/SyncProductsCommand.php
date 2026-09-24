@@ -9,7 +9,7 @@ class SyncProductsCommand extends SyncCommand
 {
     protected $signature = 'sync:products {--entity= : Limit to one Tencia entity, e.g. RCPVIC.}';
 
-    protected $description = 'Import the product master from Tencia';
+    protected $description = 'Refresh the planning overlay from dbo.vwSTK_MASTER';
 
     public function __construct(private ProductSync $sync)
     {

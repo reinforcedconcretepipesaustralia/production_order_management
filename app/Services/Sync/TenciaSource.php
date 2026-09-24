@@ -13,11 +13,11 @@ use Throwable;
 /**
  * Where each question about Tencia is actually answered.
  *
- * The consolidated TenciaRCP_View is preferred. vwSTOCK_ON_HAND carries only rings and
- * seconds — no pipes — so stock falls back to the per-state databases, which the same login can
- * read. The future order book is dbo.vwSALES_ORDERS (VwSALESORDERSView). Per-state SOR_LINES and
- * SOR_MASTER remain the fallback when that view cannot be read. Invoiced history is dbo.vwSALES.
- * docs/erp/contract.md records why for each import.
+ * The consolidated TenciaRCP_View is preferred. Stock on hand is dbo.vwSTOCK_ON_HAND. The
+ * future order book is dbo.vwSALES_ORDERS (VwSALESORDERSView). Per-state SOR_LINES and
+ * SOR_MASTER remain the fallback when that view cannot be read. Invoiced history is dbo.vwSALES
+ * and the product master is dbo.vwSTK_MASTER. Closed production runs are dbo.vwProduction.
+ * docs/erp/contract.md records why for each read.
  *
  * Everything here is read-only. The rcpa_sql connection refuses writes at the driver level.
  */
@@ -42,6 +42,14 @@ class TenciaSource
     public function view(string $name): Builder
     {
         return $this->connection()->table(DB::raw($this->viewName($name)));
+    }
+
+    /**
+     * Pipe stock on hand from dbo.vwSTOCK_ON_HAND. Column names on the view have spaces.
+     */
+    public function stockOnHand(string $entityCode): Builder
+    {
+        return $this->view('vwSTOCK_ON_HAND')->where('ENTITY', $entityCode);
     }
 
     /**

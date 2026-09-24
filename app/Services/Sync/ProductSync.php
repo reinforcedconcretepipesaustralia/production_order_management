@@ -15,11 +15,50 @@ use Illuminate\Support\Collection;
  */
 final class ProductSync
 {
+    /** @var Collection<string, SkuMaster>|null */
+    private ?Collection $catalog = null;
+
+    private ?SyncResult $lastResult = null;
+
     public function __construct(private TenciaSource $source) {}
+
+    /**
+     * Products from dbo.vwSTK_MASTER, keyed "ENTITY|STOCK_CODE". Local sku_master rows are
+     * kept only as the planning overlay (run rate, machine preference, months of cover).
+     *
+     * @return Collection<string, SkuMaster>
+     */
+    public function byEntityAndCode(?string $onlyEntity = null): Collection
+    {
+        if ($this->catalog !== null && $onlyEntity === null) {
+            return $this->catalog;
+        }
+
+        $this->sync($onlyEntity);
+
+        return $this->catalog ?? collect();
+    }
+
+    public function find(string $entity, string $code): ?SkuMaster
+    {
+        return $this->byEntityAndCode()->get($entity.'|'.$code)
+            ?? SkuMaster::query()
+                ->where('erp_entity_code', $entity)
+                ->where('sku_code', $code)
+                ->first();
+    }
+
+    public function result(): SyncResult
+    {
+        $this->byEntityAndCode();
+
+        return $this->lastResult ?? new SyncResult;
+    }
 
     public function sync(?string $onlyEntity = null): SyncResult
     {
         $result = new SyncResult;
+        $this->catalog = collect();
         $categories = $this->pipeCategoriesByEntity();
 
         if ($categories->isEmpty()) {
@@ -38,6 +77,8 @@ final class ProductSync
 
             $this->syncEntity((string) $entity, $entityCategories, $result);
         }
+
+        $this->lastResult = $result;
 
         return $result;
     }
@@ -79,6 +120,7 @@ final class ProductSync
 
             $sku->save();
 
+            $this->catalog?->put($entity.'|'.$code, $sku);
             $result->count($isActive ? 'products' : 'products (inactive in Tencia)');
         }
 

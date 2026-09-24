@@ -5,14 +5,12 @@ namespace Tests\Feature\Services\Planning;
 use App\Models\Depot;
 use App\Models\DepotShiftPattern;
 use App\Models\DowntimeEvent;
-use App\Models\InventorySoh;
 use App\Models\MachineAsset;
 use App\Models\MachineSkuRunRate;
 use App\Models\NonProductionDay;
 use App\Models\OeeSetting;
 use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
-use App\Models\SalesHistoryMonthly;
 use App\Models\Shift;
 use App\Models\SkuMaster;
 use App\Services\Planning\PlanGenerator;
@@ -481,24 +479,18 @@ class PlanGeneratorTest extends TestCase
     private function salesOf(SkuMaster $sku, int $monthlyEa): void
     {
         foreach (range(1, 3) as $monthsBack) {
-            SalesHistoryMonthly::factory()->create([
-                'depot_id' => $this->depot->id,
-                'sku_master_id' => $sku->id,
-                'month' => $this->monday->startOfMonth()->subMonths($monthsBack)->toDateString(),
-                'quantity_ea' => $monthlyEa,
-            ]);
+            $this->liveSale(
+                $this->depot,
+                $sku,
+                $this->monday->startOfMonth()->subMonths($monthsBack)->toDateString(),
+                $monthlyEa,
+            );
         }
     }
 
     private function stockOf(SkuMaster $sku, int $prime): void
     {
-        InventorySoh::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'bin_location' => '31',
-            'prime_quantity' => $prime,
-            'rework_quantity' => 0,
-        ]);
+        $this->liveStock($this->depot, $sku, $prime);
     }
 
     private function existingLine(SkuMaster $sku, int $quantity, bool $locked, string $origin): ProductionSchedule

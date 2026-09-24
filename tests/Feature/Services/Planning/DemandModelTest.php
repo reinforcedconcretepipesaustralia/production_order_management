@@ -4,8 +4,6 @@ namespace Tests\Feature\Services\Planning;
 
 use App\Models\DemandForecast;
 use App\Models\Depot;
-use App\Models\InventorySoh;
-use App\Models\SalesHistoryMonthly;
 use App\Models\SkuMaster;
 use App\Services\Planning\DemandModel;
 use App\Services\Planning\SkuDemandProfile;
@@ -39,6 +37,7 @@ class DemandModelTest extends TestCase
             'code' => 'MEL',
             'erp_entity_code' => 'RCPVIC',
             'prime_stock_locations' => ['31'],
+            'rework_stock_locations' => ['33'],
         ]);
     }
 
@@ -49,19 +48,9 @@ class DemandModelTest extends TestCase
         // 12 whole months to Aug 2026 at 120/month, plus a partial September that must be
         // ignored — otherwise a half-finished month drags every average down.
         foreach (range(1, 12) as $monthsBack) {
-            SalesHistoryMonthly::factory()->create([
-                'depot_id' => $this->depot->id,
-                'sku_master_id' => $sku->id,
-                'month' => $this->asOf->startOfMonth()->subMonths($monthsBack)->toDateString(),
-                'quantity_ea' => 120,
-            ]);
+            $this->liveSale($this->depot, $sku, $this->asOf->startOfMonth()->subMonths($monthsBack)->toDateString(), 120);
         }
-        SalesHistoryMonthly::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'month' => $this->asOf->startOfMonth()->toDateString(),
-            'quantity_ea' => 9_999,
-        ]);
+        $this->liveSale($this->depot, $sku, $this->asOf->startOfMonth()->toDateString(), 9_999);
 
         $profile = $this->profiles()->get($sku->id);
 
@@ -76,12 +65,7 @@ class DemandModelTest extends TestCase
 
         // A single month of 300 in the last three: R3M is 100, not 300. The workbook divides by
         // the window length, so a one-off project does not look like steady demand.
-        SalesHistoryMonthly::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'month' => '2026-07-01',
-            'quantity_ea' => 300,
-        ]);
+        $this->liveSale($this->depot, $sku, '2026-07-15', 300);
 
         $profile = $this->profiles()->get($sku->id);
 
@@ -124,20 +108,9 @@ class DemandModelTest extends TestCase
     {
         $sku = SkuMaster::factory()->create();
 
-        InventorySoh::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'bin_location' => '31',
-            'prime_quantity' => 60,
-            'rework_quantity' => 5,
-        ]);
-        InventorySoh::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'bin_location' => '33',
-            'prime_quantity' => 0,
-            'rework_quantity' => 12,
-        ]);
+        $this->liveStock($this->depot, $sku, 60, '31');
+        $this->liveStock($this->depot, $sku, 5, '33');
+        $this->liveStock($this->depot, $sku, 12, '33');
 
         $profile = $this->profiles()->get($sku->id);
 
@@ -322,8 +295,11 @@ class DemandModelTest extends TestCase
 
         $model = app(DemandModel::class);
         $model->persist($model->forDepot($this->depot, $this->asOf));
-        $this->stockOf($sku, prime: 25, bin: '32');
-        $model->persist($model->forDepot($this->depot, $this->asOf));
+        $this->stockOf($sku, prime: 25, bin: '31');
+
+        // A new instance: StockSync caches the first yard read for the request.
+        $later = app(DemandModel::class);
+        $later->persist($later->forDepot($this->depot, $this->asOf));
 
         $this->assertSame(1, DemandForecast::query()->count());
         $this->assertSame(35, DemandForecast::query()->sole()->prime_soh_qty);
@@ -346,19 +322,14 @@ class DemandModelTest extends TestCase
     public function test_another_plants_sales_stock_and_orders_are_excluded(): void
     {
         $other = Depot::factory()->create([
-            'code' => 'KIL',
-            'erp_entity_code' => 'RCPVIC',
-            'prime_stock_locations' => ['32'],
+            'code' => 'SOM',
+            'erp_entity_code' => 'RCPNSW',
+            'prime_stock_locations' => ['MAIN'],
         ]);
         $sku = SkuMaster::factory()->create();
 
-        SalesHistoryMonthly::factory()->create([
-            'depot_id' => $other->id,
-            'sku_master_id' => $sku->id,
-            'month' => '2026-08-01',
-            'quantity_ea' => 500,
-        ]);
-        $this->liveOrder($other, $sku, quantity: 500, due: '2026-09-25', location: '32');
+        $this->liveSale($other, $sku, '2026-08-15', 500);
+        $this->liveOrder($other, $sku, quantity: 500, due: '2026-09-25', location: 'MAIN');
 
         $this->assertTrue($this->profiles()->isEmpty());
     }
@@ -379,12 +350,12 @@ class DemandModelTest extends TestCase
     private function salesOf(SkuMaster $sku, int $monthlyEa, int $months): void
     {
         foreach (range(1, $months) as $monthsBack) {
-            SalesHistoryMonthly::factory()->create([
-                'depot_id' => $this->depot->id,
-                'sku_master_id' => $sku->id,
-                'month' => $this->asOf->startOfMonth()->subMonths($monthsBack)->toDateString(),
-                'quantity_ea' => $monthlyEa,
-            ]);
+            $this->liveSale(
+                $this->depot,
+                $sku,
+                $this->asOf->startOfMonth()->subMonths($monthsBack)->toDateString(),
+                $monthlyEa,
+            );
         }
     }
 
@@ -395,12 +366,10 @@ class DemandModelTest extends TestCase
 
     private function stockOf(SkuMaster $sku, int $prime, int $rework = 0, string $bin = '31'): void
     {
-        InventorySoh::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'bin_location' => $bin,
-            'prime_quantity' => $prime,
-            'rework_quantity' => $rework,
-        ]);
+        $this->liveStock($this->depot, $sku, $prime, $bin);
+
+        if ($rework > 0) {
+            $this->liveStock($this->depot, $sku, $rework, '33');
+        }
     }
 }

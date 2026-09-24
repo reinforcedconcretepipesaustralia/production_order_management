@@ -4,11 +4,11 @@ namespace App\Services\Planning;
 
 use App\Models\DemandForecast;
 use App\Models\Depot;
-use App\Models\InventorySoh;
-use App\Models\SalesHistoryMonthly;
 use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Services\Sync\OrderSync;
+use App\Services\Sync\SalesHistorySync;
+use App\Services\Sync\StockSync;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -31,7 +31,11 @@ final class DemandModel
     /** Delivery months bucketed out, matching workbook columns V to Y. */
     private const FORWARD_MONTHS = 4;
 
-    public function __construct(private OrderSync $orderBook) {}
+    public function __construct(
+        private OrderSync $orderBook,
+        private SalesHistorySync $salesHistory,
+        private StockSync $stock,
+    ) {}
 
     /**
      * @return Collection<int, SkuDemandProfile> Keyed by SKU id, ordered fastest mover first.
@@ -40,9 +44,9 @@ final class DemandModel
     {
         $asOf = ($asOf ?? CarbonImmutable::now())->startOfDay();
 
-        $velocity = $this->velocityBySku($depot, $asOf);
+        $velocity = $this->salesHistory->velocityForDepot($depot, $asOf);
         $orderBook = $this->orderBookBySku($depot, $asOf);
-        $stock = $this->stockBySku($depot);
+        $stock = $this->stock->forDepot($depot);
 
         $skuIds = $velocity->keys()
             ->merge($orderBook->keys())
@@ -166,39 +170,6 @@ final class DemandModel
     }
 
     /**
-     * Average monthly eaches over the trailing 3, 6 and 12 whole months.
-     *
-     * @return Collection<int, array{r3m: float, r6m: float, r12m: float}>
-     */
-    private function velocityBySku(Depot $depot, CarbonImmutable $asOf): Collection
-    {
-        $rows = SalesHistoryMonthly::query()
-            ->where('depot_id', $depot->id)
-            ->trailingMonths($asOf, 12)
-            ->get(['sku_master_id', 'month', 'quantity_ea']);
-
-        $firstOfCurrentMonth = $asOf->startOfMonth();
-
-        return $rows
-            ->groupBy('sku_master_id')
-            ->map(function (Collection $skuRows) use ($firstOfCurrentMonth): array {
-                $sum = function (int $months) use ($skuRows, $firstOfCurrentMonth): float {
-                    $from = $firstOfCurrentMonth->subMonths($months);
-
-                    return (float) $skuRows
-                        ->filter(fn (SalesHistoryMonthly $row): bool => $row->month->greaterThanOrEqualTo($from))
-                        ->sum('quantity_ea');
-                };
-
-                return [
-                    'r3m' => $sum(3) / 3,
-                    'r6m' => $sum(6) / 6,
-                    'r12m' => $sum(12) / 12,
-                ];
-            });
-    }
-
-    /**
      * Outstanding order quantities, split into overdue, the current month, and the next few
      * delivery months.
      *
@@ -265,21 +236,6 @@ final class DemandModel
                     'earliest_due' => $earliestDue?->toDateString(),
                 ];
             });
-    }
-
-    /**
-     * @return Collection<int, array{prime: int, rework: int}>
-     */
-    private function stockBySku(Depot $depot): Collection
-    {
-        return InventorySoh::query()
-            ->where('depot_id', $depot->id)
-            ->get(['sku_master_id', 'prime_quantity', 'rework_quantity'])
-            ->groupBy('sku_master_id')
-            ->map(fn (Collection $rows): array => [
-                'prime' => (int) $rows->sum('prime_quantity'),
-                'rework' => (int) $rows->sum('rework_quantity'),
-            ]);
     }
 
     /**

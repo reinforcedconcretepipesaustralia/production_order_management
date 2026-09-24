@@ -3,9 +3,6 @@
 namespace Tests\Feature\Services\Sync;
 
 use App\Models\Depot;
-use App\Models\InventorySoh;
-use App\Models\ProductionHistory;
-use App\Models\SalesHistoryMonthly;
 use App\Models\SkuMaster;
 use App\Services\Sync\ProductionHistorySync;
 use App\Services\Sync\SalesHistorySync;
@@ -58,14 +55,14 @@ class StockAndHistorySyncTest extends TestCase
             ->addStock('RCPVIC', ['STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '33', 'ON_HAND_QTY' => 51])
             ->addStock('RCPVIC', ['STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => 'QS', 'ON_HAND_QTY' => 7]);
 
-        app(StockSync::class)->sync();
+        $byKind = app(StockSync::class)->forDepot($this->melton)->get($sku->id);
 
-        $position = InventorySoh::query()->where('depot_id', $this->melton->id)->sole();
-
-        $this->assertSame($sku->id, $position->sku_master_id);
-        $this->assertSame(400, $position->prime_quantity);
-        $this->assertSame(51, $position->rework_quantity);
-        $this->assertSame(7, $position->quarantine_quantity);
+        $this->assertSame(400, $byKind['prime']);
+        $this->assertSame(51, $byKind['rework']);
+        $this->assertSame(7, (int) app(StockSync::class)->positions()
+            ->where('depot_id', $this->melton->id)
+            ->where('kind', 'quarantine')
+            ->sum('on_hand'));
     }
 
     public function test_each_plant_keeps_its_own_yard(): void
@@ -76,10 +73,10 @@ class StockAndHistorySyncTest extends TestCase
             ->addStock('RCPVIC', ['STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'ON_HAND_QTY' => 400])
             ->addStock('RCPVIC', ['STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '32', 'ON_HAND_QTY' => 120]);
 
-        app(StockSync::class)->sync();
+        $stock = app(StockSync::class);
 
-        $this->assertSame(400, InventorySoh::query()->where('depot_id', $this->melton->id)->sole()->prime_quantity);
-        $this->assertSame(120, InventorySoh::query()->where('depot_id', $this->kilmore->id)->sole()->prime_quantity);
+        $this->assertSame(400, $stock->forDepot($this->melton)->first()['prime']);
+        $this->assertSame(120, $stock->forDepot($this->kilmore)->first()['prime']);
     }
 
     /**
@@ -94,10 +91,11 @@ class StockAndHistorySyncTest extends TestCase
             'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'ON_HAND_QTY' => -32,
         ]);
 
-        $counts = app(StockSync::class)->sync()->counts();
+        $stock = app(StockSync::class);
+        $stock->positions();
 
-        $this->assertSame(1, $counts['locations with negative stock in Tencia']);
-        $this->assertSame(0, InventorySoh::query()->sole()->prime_quantity);
+        $this->assertSame(1, $stock->result()->counts()['locations with negative stock in Tencia']);
+        $this->assertSame(0, $stock->forDepot($this->melton)->first()['prime'] ?? 0);
     }
 
     public function test_a_yard_no_plant_owns_is_not_counted_as_plant_stock(): void
@@ -109,10 +107,11 @@ class StockAndHistorySyncTest extends TestCase
             'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '35', 'ON_HAND_QTY' => 300,
         ]);
 
-        $counts = app(StockSync::class)->sync()->counts();
+        $stock = app(StockSync::class);
+        $stock->positions();
 
-        $this->assertSame(1, $counts['skipped (location not a plant yard)']);
-        $this->assertSame(0, InventorySoh::query()->count());
+        $this->assertSame(1, $stock->result()->counts()['skipped (location not a plant yard)']);
+        $this->assertCount(0, $stock->positions());
     }
 
     public function test_re_syncing_stock_updates_rather_than_duplicates(): void
@@ -123,10 +122,8 @@ class StockAndHistorySyncTest extends TestCase
             'STOCK_CODE' => 'R0600-4', 'STOCK_LOCATION' => '31', 'ON_HAND_QTY' => 400,
         ]);
 
-        app(StockSync::class)->sync();
-        app(StockSync::class)->sync();
-
-        $this->assertSame(1, InventorySoh::query()->count());
+        $this->assertCount(1, app(StockSync::class)->positions());
+        $this->assertDatabaseCount('inventory_soh', 0);
     }
 
     /**
@@ -144,13 +141,11 @@ class StockAndHistorySyncTest extends TestCase
                 'DATE' => '2026-08-25 00:00:00', 'QUANTITY' => 10, 'Line_Weight' => 5.9,
             ]);
 
-        app(SalesHistorySync::class)->sync();
+        $month = app(SalesHistorySync::class)->months()->sole();
 
-        $month = SalesHistoryMonthly::query()->sole();
-
-        $this->assertSame('2026-08-01', $month->month->toDateString());
-        $this->assertSame(150, $month->quantity_ea);
-        $this->assertSame('89.1000', $month->tonnes);
+        $this->assertSame('2026-08-01', $month['month']);
+        $this->assertSame(150, $month['quantity_ea']);
+        $this->assertSame(89.1, $month['tonnes']);
     }
 
     public function test_sales_are_split_by_month(): void
@@ -161,29 +156,22 @@ class StockAndHistorySyncTest extends TestCase
             ->addSale(['STOCK_CODE' => 'R0600-4', 'DATE' => '2026-07-10 00:00:00', 'QUANTITY' => 10])
             ->addSale(['STOCK_CODE' => 'R0600-4', 'DATE' => '2026-08-10 00:00:00', 'QUANTITY' => 20]);
 
-        app(SalesHistorySync::class)->sync();
-
         $this->assertSame(
             ['2026-07-01' => 10, '2026-08-01' => 20],
-            SalesHistoryMonthly::query()->orderBy('month')->get()
-                ->mapWithKeys(fn ($row): array => [$row->month->toDateString() => $row->quantity_ea])->all(),
+            app(SalesHistorySync::class)->months()
+                ->sortBy('month')
+                ->mapWithKeys(fn (array $row): array => [$row['month'] => $row['quantity_ea']])
+                ->all(),
         );
     }
 
-    /**
-     * Re-running must not duplicate a month. The date cast persists a midnight time, so matching on a
-     * 'Y-m-d' string never finds the existing row — this codebase has been bitten by that repeatedly.
-     */
-    public function test_re_syncing_sales_updates_the_same_month(): void
+    public function test_re_reading_sales_returns_the_same_month_once(): void
     {
         $this->sku('R0600-4');
 
         $this->tencia->addSale(['STOCK_CODE' => 'R0600-4', 'DATE' => '2026-08-10 00:00:00', 'QUANTITY' => 10]);
 
-        app(SalesHistorySync::class)->sync();
-        app(SalesHistorySync::class)->sync();
-
-        $this->assertSame(1, SalesHistoryMonthly::query()->count());
+        $this->assertCount(1, app(SalesHistorySync::class)->months());
     }
 
     /**
@@ -202,17 +190,15 @@ class StockAndHistorySyncTest extends TestCase
             ]);
         }
 
-        $counts = app(ProductionHistorySync::class)->sync()->counts();
+        $history = app(ProductionHistorySync::class);
+        $run = $history->runs()->sole();
 
-        $this->assertSame(1, $counts['production runs']);
-
-        $run = ProductionHistory::query()->sole();
-
-        $this->assertSame(333, $run->good_quantity);
-        $this->assertSame(10, $run->rejected_quantity);
-        $this->assertSame('82.9200', $run->tonnes_produced);
-        $this->assertSame($sku->id, $run->sku_master_id);
-        $this->assertSame(97.08, $run->qualityPercent());
+        $this->assertSame(1, $history->result()->counts()['production runs']);
+        $this->assertSame(333, $run['good_quantity']);
+        $this->assertSame(10, $run['rejected_quantity']);
+        $this->assertSame(82.92, $run['tonnes_produced']);
+        $this->assertSame($sku->id, $run['sku_master_id']);
+        $this->assertSame(97.08, $run['quality_percent']);
     }
 
     /**
@@ -233,11 +219,12 @@ class StockAndHistorySyncTest extends TestCase
                 'ORDER_DATE' => '2026-09-02 00:00:00', 'GOOD_PIPES' => 250,
             ]);
 
-        app(ProductionHistorySync::class)->sync();
-
         $this->assertSame(
             [100, 250],
-            ProductionHistory::query()->orderBy('erp_order_duplicate')->pluck('good_quantity')->all(),
+            app(ProductionHistorySync::class)->runs()
+                ->sortBy('erp_order_duplicate')
+                ->pluck('good_quantity')
+                ->all(),
         );
     }
 
@@ -255,9 +242,10 @@ class StockAndHistorySyncTest extends TestCase
                 'ORDER_DATE' => '2026-09-01 00:00:00', 'GOOD_PIPES' => 50,
             ]);
 
-        app(ProductionHistorySync::class)->sync();
-
-        $this->assertSame(['DONE'], ProductionHistory::query()->pluck('erp_order_number')->all());
+        $this->assertSame(
+            ['DONE'],
+            app(ProductionHistorySync::class)->runs()->pluck('erp_order_number')->all(),
+        );
     }
 
     /**
@@ -271,12 +259,13 @@ class StockAndHistorySyncTest extends TestCase
             'ORDER_DATE' => '2026-09-01 00:00:00', 'GOOD_PIPES' => 20,
         ]);
 
-        $counts = app(ProductionHistorySync::class)->sync()->counts();
+        $history = app(ProductionHistorySync::class);
+        $run = $history->runs()->sole();
 
-        $this->assertSame(1, $counts['production runs']);
-        $this->assertSame(1, $counts['runs of a product not in the master']);
-        $this->assertNull(ProductionHistory::query()->sole()->sku_master_id);
-        $this->assertSame('GONE-1', ProductionHistory::query()->sole()->sku_code);
+        $this->assertSame(1, $history->result()->counts()['production runs']);
+        $this->assertSame(1, $history->result()->counts()['runs of a product not in the master']);
+        $this->assertNull($run['sku_master_id']);
+        $this->assertSame('GONE-1', $run['sku_code']);
     }
 
     private function sku(string $code): SkuMaster

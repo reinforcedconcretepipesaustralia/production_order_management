@@ -3,8 +3,6 @@
 namespace Tests\Feature\Services\Planning;
 
 use App\Models\Depot;
-use App\Models\InventorySoh;
-use App\Models\SalesHistoryMonthly;
 use App\Models\SkuMaster;
 use App\Services\Planning\DemandModel;
 use App\Services\Planning\DemandRequirement;
@@ -152,7 +150,7 @@ class DemandRequirementBuilderTest extends TestCase
         $this->assertSame(200, $builder->uncoveredOrderQty($this->profiles()));
 
         // Enough stock arrives to cover the order book.
-        $this->stockOf($sku, prime: 250, bin: '32');
+        $this->stockOf($sku, prime: 250, bin: '31');
 
         $this->assertTrue($builder->isDemandCaughtUp($this->profiles()));
         $this->assertSame(0, $builder->uncoveredOrderQty($this->profiles()));
@@ -218,12 +216,12 @@ class DemandRequirementBuilderTest extends TestCase
     private function salesOf(SkuMaster $sku, int $monthlyEa): void
     {
         foreach (range(1, 3) as $monthsBack) {
-            SalesHistoryMonthly::factory()->create([
-                'depot_id' => $this->depot->id,
-                'sku_master_id' => $sku->id,
-                'month' => $this->asOf->startOfMonth()->subMonths($monthsBack)->toDateString(),
-                'quantity_ea' => $monthlyEa,
-            ]);
+            $this->liveSale(
+                $this->depot,
+                $sku,
+                $this->asOf->startOfMonth()->subMonths($monthsBack)->toDateString(),
+                $monthlyEa,
+            );
         }
     }
 
@@ -234,12 +232,6 @@ class DemandRequirementBuilderTest extends TestCase
 
     private function stockOf(SkuMaster $sku, int $prime, string $bin = '31'): void
     {
-        InventorySoh::factory()->create([
-            'depot_id' => $this->depot->id,
-            'sku_master_id' => $sku->id,
-            'bin_location' => $bin,
-            'prime_quantity' => $prime,
-            'rework_quantity' => 0,
-        ]);
+        $this->liveStock($this->depot, $sku, $prime, $bin);
     }
 }

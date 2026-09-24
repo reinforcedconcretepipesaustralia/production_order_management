@@ -96,6 +96,22 @@ class FakeTenciaSource extends TenciaSource
             $table->decimal('BILL_TONNES_PRODUCED', 18, 6)->default(0);
         });
 
+        Schema::create('vwSTOCK_ON_HAND', function (Blueprint $table) {
+            $table->string('ENTITY');
+            $table->string('Stock Code');
+            $table->string('Stock Description')->nullable();
+            $table->string('Stock Category Code')->nullable();
+            $table->string('Stock Category Name')->nullable();
+            $table->decimal('Stock Weight', 18, 6)->default(0);
+            $table->decimal('Std Cost', 18, 6)->default(0);
+            $table->string('Location Code');
+            $table->string('Location Name')->nullable();
+            $table->decimal('Qty On Hand', 18, 6)->default(0);
+            $table->decimal('Qty Allocated', 18, 6)->default(0);
+            $table->decimal('Qty Backorder', 18, 6)->default(0);
+            $table->decimal('Qty Available', 18, 6)->default(0);
+        });
+
         Schema::create('vwSALES_ORDERS', function (Blueprint $table) {
             $table->string('ENTITY');
             $table->string('TRANS_TYPE')->default('DRSOR');
@@ -341,6 +357,19 @@ class FakeTenciaSource extends TenciaSource
     public function addStock(string $entity, array $row): self
     {
         DB::table($this->stateTableName($entity, 'STK_LOCN_MASTER'))->insert($row);
+
+        if (Schema::hasTable('vwSTOCK_ON_HAND')) {
+            DB::table('vwSTOCK_ON_HAND')->insert([
+                'ENTITY' => $entity,
+                'Stock Code' => $row['STOCK_CODE'],
+                'Location Code' => $row['STOCK_LOCATION'],
+                'Stock Category Code' => $row['STOCK_CATEGORY'] ?? 'VA',
+                'Qty On Hand' => $row['ON_HAND_QTY'] ?? $row['Qty On Hand'] ?? 0,
+                'Qty Allocated' => $row['ALLOCATED_QTY'] ?? 0,
+                'Qty Backorder' => $row['BACKORDER_QTY'] ?? 0,
+                'Qty Available' => $row['AVAILABLE_QTY'] ?? $row['ON_HAND_QTY'] ?? 0,
+            ]);
+        }
 
         return $this;
     }

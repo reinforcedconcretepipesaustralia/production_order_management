@@ -27,7 +27,7 @@ class LoadCapacityServiceTest extends TestCase
     {
         [$load, $order] = $this->loadAndOrder(12, '2.1250');
 
-        $result = $this->service()->calculate($load, $order, 4);
+        $result = $this->service()->calculate($load, $order->sku, 4);
 
         $this->assertSame('8.5000', $result->itemWeightTonnes);
         $this->assertSame('8.5000', $result->loadWeightTonnes);
@@ -40,7 +40,7 @@ class LoadCapacityServiceTest extends TestCase
 
         $this->expectException(LoadCapacityExceededException::class);
 
-        $this->service()->calculate($load, $order, 5);
+        $this->service()->calculate($load, $order->sku, 5);
     }
 
     public function test_adds_only_prime_stock_allocated_quantity_and_updates_load_weight(): void
