@@ -66,14 +66,32 @@ class PlanReviewPageTest extends TestCase
 
         Livewire::actingAs($this->planner())
             ->test(PlanReview::class)
-            ->call('editLine', $line->id)
-            ->set('editing.planned_quantity', 300)
-            ->set('editReason', 'Mould is down after lunch')
-            ->call('saveLine')
+            ->call('updateTableColumnState', 'planned_quantity', (string) $line->getKey(), 300)
             ->assertHasNoErrors();
 
         $this->assertSame(300, $line->fresh()->planned_quantity);
-        $this->assertSame('Mould is down after lunch', PlanChangeLogEntry::query()->sole()->reason);
+        $this->assertSame('quantity', PlanChangeLogEntry::query()->sole()->field);
+    }
+
+    public function test_a_planner_can_move_a_line_to_another_day(): void
+    {
+        $line = $this->line('R0600-4', 340);
+        $line->forceFill([
+            'schedule_date' => '2026-09-21',
+            'planned_start_at' => '2026-09-21 06:00:00',
+            'planned_end_at' => '2026-09-21 14:00:00',
+        ])->save();
+
+        Livewire::actingAs($this->planner())
+            ->test(PlanReview::class)
+            ->call('updateTableColumnState', 'schedule_date', (string) $line->getKey(), '2026-09-23')
+            ->assertHasNoErrors();
+
+        $fresh = $line->fresh();
+
+        $this->assertSame('2026-09-23', $fresh->schedule_date->toDateString());
+        $this->assertSame('2026-09-23 06:00:00', $fresh->planned_start_at->format('Y-m-d H:i:s'));
+        $this->assertSame('date', PlanChangeLogEntry::query()->sole()->field);
     }
 
     public function test_a_planner_can_hold_a_line_against_regeneration(): void
@@ -126,10 +144,7 @@ class PlanReviewPageTest extends TestCase
             ->test(PlanReview::class)
             ->assertSee('R0600-4')
             ->assertDontSee('Approve plan')
-            ->call('editLine', $line->id)
-            ->set('editing.planned_quantity', 1)
-            ->call('saveLine')
-            ->assertNotified('You can read this plan but not change it.');
+            ->call('updateTableColumnState', 'planned_quantity', (string) $line->getKey(), 1);
 
         $this->assertSame(340, $line->fresh()->planned_quantity);
         $this->assertSame(0, PlanChangeLogEntry::query()->count());

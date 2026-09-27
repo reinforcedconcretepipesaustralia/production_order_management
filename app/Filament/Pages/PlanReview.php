@@ -11,21 +11,24 @@ use App\Models\ProductionSchedule;
 use App\Services\Planning\PlanReviewService;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Tables;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
+use Filament\Tables\Columns\ToggleColumn;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use RuntimeException;
 
 /**
  * Where a planner reviews what the engine proposed, changes what they disagree with, and signs it
- * off. This is the screen the model exists for: the plan arrives written, and a human's job is to
- * check it rather than author it.
- *
- * Laid out by plant, date and shift the way the workbook's Prod Plan tab is, because that is the
- * shape planners already read.
+ * off. Quantity and date are edited in the table so a planner can adjust the plan without opening
+ * a form for every line.
  */
-class PlanReview extends Page
+class PlanReview extends Page implements Tables\Contracts\HasTable
 {
     use HasOperationalFilters;
+    use Tables\Concerns\InteractsWithTable;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-check';
 
@@ -38,14 +41,6 @@ class PlanReview extends Page
     protected string $view = 'filament.pages.plan-review';
 
     public ?int $planRunId = null;
-
-    /** The line currently open for editing, if any. */
-    public ?int $editingLineId = null;
-
-    /** @var array<string, mixed> */
-    public array $editing = [];
-
-    public string $editReason = '';
 
     public function mount(): void
     {
@@ -79,6 +74,73 @@ class PlanReview extends Page
         return static::operationalUser()?->hasCapability(Capability::ManageSchedules) ?? false;
     }
 
+    public function table(Table $table): Table
+    {
+        $editable = $this->linesAreEditable();
+
+        return $table
+            ->query($this->linesQuery())
+            ->defaultGroup('depot.name')
+            ->defaultSort('schedule_date')
+            ->paginated([25, 50, 100])
+            ->columns([
+                TextColumn::make('sku.sku_code')
+                    ->label('Product')
+                    ->searchable()
+                    ->sortable()
+                    ->description(fn (ProductionSchedule $line): ?string => match (true) {
+                        $line->origin === ProductionSchedule::ORIGIN_MANUAL && $line->is_steamed => 'Edited · steamed',
+                        $line->origin === ProductionSchedule::ORIGIN_MANUAL => 'Edited',
+                        $line->is_steamed => 'Steamed',
+                        default => null,
+                    }),
+                TextInputColumn::make('schedule_date')
+                    ->label('Date')
+                    ->type('date')
+                    ->disabled(fn (): bool => ! $editable)
+                    ->updateStateUsing(fn (ProductionSchedule $record, mixed $state): mixed => $this->persistLine(
+                        $record,
+                        ['schedule_date' => $state],
+                    )),
+                TextInputColumn::make('planned_quantity')
+                    ->label('Pipes')
+                    ->type('number')
+                    ->inputMode('numeric')
+                    ->step('1')
+                    ->alignEnd()
+                    ->disabled(fn (): bool => ! $editable)
+                    ->updateStateUsing(fn (ProductionSchedule $record, mixed $state): mixed => $this->persistLine(
+                        $record,
+                        ['planned_quantity' => max(0, (int) $state)],
+                    )),
+                TextColumn::make('shift.name')
+                    ->label('Shift')
+                    ->placeholder('—'),
+                TextColumn::make('machine.name')
+                    ->label('Machine')
+                    ->placeholder('—')
+                    ->searchable(),
+                TextColumn::make('reason_code')
+                    ->label('Why')
+                    ->formatStateUsing(fn (?string $state): string => $state === null || $state === ''
+                        ? '—'
+                        : str($state)->replace('_', ' ')->ucfirst()->toString())
+                    ->description(fn (ProductionSchedule $line): ?string => $line->planner_notes),
+                ToggleColumn::make('is_locked')
+                    ->label('Hold')
+                    ->disabled(fn (): bool => ! $editable)
+                    ->updateStateUsing(function (ProductionSchedule $record, mixed $state): bool {
+                        $this->toggleLock($record->id, app(PlanReviewService::class));
+
+                        return (bool) $record->fresh()?->is_locked;
+                    }),
+            ])
+            ->emptyStateHeading($this->planRun() === null ? 'No plan has been generated yet' : 'No lines in this plan')
+            ->emptyStateDescription($this->planRun() === null
+                ? 'Run php artisan plan:generate to propose one.'
+                : 'Widen the plant, shift, or machine filters, or generate a new plan.');
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -91,78 +153,10 @@ class PlanReview extends Page
             'runs' => $this->selectableRuns(),
             'run' => $run,
             ...$filters,
-            'lanes' => $run === null ? collect() : $this->lanes($run),
             'materials' => $run === null ? collect() : $this->materials($run),
             'changes' => $run === null ? collect() : $this->changes($run),
             'canManage' => $this->canManage(),
         ];
-    }
-
-    public function editLine(int $lineId): void
-    {
-        $line = $this->reachableLine($lineId);
-
-        if ($line === null) {
-            return;
-        }
-
-        $this->editingLineId = $line->id;
-        $this->editReason = '';
-        $this->editing = [
-            'planned_quantity' => (int) $line->planned_quantity,
-            'shift_fraction' => (float) $line->shift_fraction,
-            // Left null rather than coerced to 0: priority is nullable, and turning "not set" into
-            // zero would log a change on every line a planner merely opened.
-            'priority' => $line->priority,
-            'is_steamed' => (bool) $line->is_steamed,
-            'planner_notes' => (string) $line->planner_notes,
-        ];
-    }
-
-    public function cancelEdit(): void
-    {
-        $this->editingLineId = null;
-        $this->editing = [];
-        $this->editReason = '';
-    }
-
-    public function saveLine(PlanReviewService $review): void
-    {
-        if (! $this->mayManage()) {
-            return;
-        }
-
-        $line = $this->reachableLine((int) $this->editingLineId);
-
-        if ($line === null) {
-            return;
-        }
-
-        try {
-            $applied = $review->updateLine(
-                $line,
-                [
-                    'planned_quantity' => max(0, (int) ($this->editing['planned_quantity'] ?? 0)),
-                    'shift_fraction' => max(0, (float) ($this->editing['shift_fraction'] ?? 0)),
-                    'priority' => $this->optionalInteger($this->editing['priority'] ?? null),
-                    'is_steamed' => (bool) ($this->editing['is_steamed'] ?? false),
-                    'planner_notes' => trim((string) ($this->editing['planner_notes'] ?? '')) ?: null,
-                ],
-                auth()->user(),
-                trim($this->editReason) ?: null,
-            );
-        } catch (RuntimeException $exception) {
-            Notification::make()->danger()->title($exception->getMessage())->send();
-
-            return;
-        }
-
-        Notification::make()
-            ->success()
-            ->title($applied === 0 ? 'Nothing changed.' : "Saved {$applied} change(s).")
-            ->send();
-
-        $this->cancelEdit();
     }
 
     public function toggleLock(int $lineId, PlanReviewService $review): void
@@ -245,12 +239,16 @@ class PlanReview extends Page
     }
 
     /**
-     * Lines grouped the way a planner reads them: plant, then day, then shift.
-     *
-     * @return Collection<string, Collection<int, ProductionSchedule>>
+     * @return Builder<ProductionSchedule>
      */
-    private function lanes(PlanRun $run): Collection
+    private function linesQuery(): Builder
     {
+        $run = $this->planRun();
+
+        if ($run === null) {
+            return ProductionSchedule::query()->whereRaw('0 = 1');
+        }
+
         return $this->applyOperationalFilters(
             ProductionSchedule::query()
                 ->with(['depot', 'machine', 'shift', 'sku'])
@@ -273,14 +271,7 @@ class PlanReview extends Page
                 ->orderBy('schedule_date')
                 ->orderBy('planned_start_at')
                 ->orderBy('id'),
-        )
-            ->get()
-            ->groupBy(fn (ProductionSchedule $line): string => sprintf(
-                '%s|%s|%s',
-                $line->depot?->code ?? '—',
-                $line->schedule_date?->toDateString() ?? '—',
-                $line->shift?->name ?? 'Shift',
-            ));
+        );
     }
 
     /**
@@ -337,6 +328,39 @@ class PlanReview extends Page
     }
 
     /**
+     * @param  array<string, mixed>  $changes
+     */
+    private function persistLine(ProductionSchedule $line, array $changes): mixed
+    {
+        if (! $this->mayManage()) {
+            return $line->getAttribute(array_key_first($changes));
+        }
+
+        $reachable = $this->reachableLine($line->id);
+
+        if ($reachable === null) {
+            return $line->getAttribute(array_key_first($changes));
+        }
+
+        try {
+            app(PlanReviewService::class)->updateLine($reachable, $changes, auth()->user());
+        } catch (RuntimeException $exception) {
+            Notification::make()->danger()->title($exception->getMessage())->send();
+
+            return $line->getAttribute(array_key_first($changes));
+        }
+
+        $fresh = $reachable->fresh();
+        $field = (string) array_key_first($changes);
+
+        if ($field === 'schedule_date') {
+            return $fresh?->schedule_date?->toDateString();
+        }
+
+        return $fresh?->getAttribute($field);
+    }
+
+    /**
      * A line the current user may actually reach, which is how plant scoping is enforced on writes as
      * well as on reads. Returns null and says so rather than aborting: a raw 403 page in place of the
      * plan is a worse answer than a message beside it.
@@ -360,6 +384,13 @@ class PlanReview extends Page
         return $line;
     }
 
+    private function linesAreEditable(): bool
+    {
+        $run = $this->planRun();
+
+        return $this->canManage() && $run !== null && $run->isDraft();
+    }
+
     private function mayManage(): bool
     {
         if ($this->canManage()) {
@@ -372,13 +403,5 @@ class PlanReview extends Page
             ->send();
 
         return false;
-    }
-
-    /**
-     * An emptied number field means "not set", which is different from zero.
-     */
-    private function optionalInteger(mixed $value): ?int
-    {
-        return $value === null || $value === '' ? null : max(0, (int) $value);
     }
 }

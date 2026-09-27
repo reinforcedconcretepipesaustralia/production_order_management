@@ -42,6 +42,23 @@ class PlanReviewServiceTest extends TestCase
         $this->planner = User::factory()->create(['name' => 'Shane Bull']);
     }
 
+    public function test_a_date_change_moves_the_shift_clock_with_the_day(): void
+    {
+        $line = $this->line([
+            'schedule_date' => '2026-09-21',
+            'planned_start_at' => '2026-09-21 06:00:00',
+            'planned_end_at' => '2026-09-21 14:00:00',
+        ]);
+
+        $applied = $this->review->updateLine($line, ['schedule_date' => '2026-09-24'], $this->planner);
+
+        $this->assertSame(1, $applied);
+        $this->assertSame('2026-09-24', $line->fresh()->schedule_date->toDateString());
+        $this->assertSame('2026-09-24 06:00:00', $line->fresh()->planned_start_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-09-24 14:00:00', $line->fresh()->planned_end_at->format('Y-m-d H:i:s'));
+        $this->assertSame('date', PlanChangeLogEntry::query()->sole()->field);
+    }
+
     public function test_a_quantity_change_is_applied_and_recorded(): void
     {
         $line = $this->line(['planned_quantity' => 340]);

@@ -6,6 +6,7 @@ use App\Models\PlanChangeLogEntry;
 use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -26,6 +27,7 @@ final class PlanReviewService
      */
     private const EDITABLE = [
         'planned_quantity' => 'quantity',
+        'schedule_date' => 'date',
         'shift_fraction' => 'share of shift',
         'priority' => 'priority',
         'is_steamed' => 'steamed',
@@ -54,13 +56,29 @@ final class PlanReviewService
                     throw new RuntimeException("[{$field}] is not a field a planner may change.");
                 }
 
-                $before = $line->getAttribute($field);
+                if ($field === 'schedule_date') {
+                    $value = $value === null || $value === ''
+                        ? null
+                        : CarbonImmutable::parse((string) $value)->toDateString();
+                    $before = $line->schedule_date?->toDateString();
+                } else {
+                    $before = $line->getAttribute($field);
+                }
 
                 if ($this->same($before, $value)) {
                     continue;
                 }
 
-                $line->setAttribute($field, $value);
+                if ($field === 'schedule_date') {
+                    if ($value === null) {
+                        throw new RuntimeException('A plan line needs a date.');
+                    }
+
+                    $this->moveLineToDate($line, $value);
+                } else {
+                    $line->setAttribute($field, $value);
+                }
+
                 // A line a planner has touched is theirs: regeneration must not take it back.
                 $line->origin = ProductionSchedule::ORIGIN_MANUAL;
 
@@ -149,6 +167,28 @@ final class PlanReviewService
 
             $run->update(['status' => PlanRun::STATUS_DISCARDED]);
         });
+    }
+
+    /**
+     * Keep the line on the same clock when the planner moves the day, so a 6am start stays 6am.
+     */
+    private function moveLineToDate(ProductionSchedule $line, string $date): void
+    {
+        $newDate = CarbonImmutable::parse($date)->startOfDay();
+        $oldDate = $line->schedule_date === null
+            ? null
+            : CarbonImmutable::parse($line->schedule_date->toDateString())->startOfDay();
+
+        if ($oldDate !== null && $line->planned_start_at !== null) {
+            $days = (int) $oldDate->diffInDays($newDate, false);
+            $line->planned_start_at = $line->planned_start_at->copy()->addDays($days);
+
+            if ($line->planned_end_at !== null) {
+                $line->planned_end_at = $line->planned_end_at->copy()->addDays($days);
+            }
+        }
+
+        $line->schedule_date = $newDate->toDateString();
     }
 
     private function guardEditable(ProductionSchedule $line): void
