@@ -8,6 +8,7 @@ use App\Filament\Pages\DeliveryReminders;
 use App\Filament\Pages\ErpViews;
 use App\Filament\Pages\LogisticsLoadBuilder;
 use App\Filament\Pages\PlanReview;
+use App\Filament\Pages\ProductionActuals;
 use App\Filament\Pages\ProductionBoard;
 use App\Filament\Pages\SteelRequisitionDashboard;
 use App\Filament\Resources\Depots\DepotResource;
@@ -81,6 +82,10 @@ class ShieldRoleCatalog
         PlanReview::class => [
             'capabilities' => [Capability::ViewSchedules, Capability::ManageSchedules, Capability::ViewDepotOperations],
             'national' => true,
+        ],
+        ProductionActuals::class => [
+            'capabilities' => [Capability::ViewProductionActuals, Capability::EnterProductionActuals],
+            'national' => false,
         ],
         LogisticsLoadBuilder::class => [
             'capabilities' => [Capability::ViewDispatchLoads],
