@@ -26,7 +26,7 @@ class LogisticsLoadBuilder extends Page
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-truck';
 
-    protected static string|\UnitEnum|null $navigationGroup = 'Operations';
+    protected static string|\UnitEnum|null $navigationGroup = 'Logistics';
 
     protected static ?string $navigationLabel = 'Load Builder';
 

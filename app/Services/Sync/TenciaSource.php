@@ -156,6 +156,15 @@ class TenciaSource
         return DB::connection('rcpa_sql');
     }
 
+    /**
+     * Write connection for rare Tencia updates such as delivery-date amendments.
+     * Production uses rcpa_sql_write; tests override this onto the local fixture.
+     */
+    public function writeConnection(): ConnectionInterface
+    {
+        return DB::connection('rcpa_sql_write');
+    }
+
     protected function viewName(string $name): string
     {
         return "dbo.[{$name}]";

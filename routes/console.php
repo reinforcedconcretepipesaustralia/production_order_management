@@ -26,3 +26,25 @@ Artisan::command('inspire', function () {
 
 Schedule::command('sync:products')->dailyAt('04:00')->withoutOverlapping();
 Schedule::command('sync:bom')->dailyAt('04:15')->withoutOverlapping();
+
+/*
+|--------------------------------------------------------------------------
+| Delivery reminders
+|--------------------------------------------------------------------------
+|
+| Off until DELIVERY_REMINDERS_ENABLED=true. Run delivery-reminders:mark-seen
+| once before enabling so the historic overdue book is not emailed.
+|
+*/
+
+Schedule::command('delivery-reminders:send')
+    ->dailyAt('07:30')
+    ->timezone('Australia/Melbourne')
+    ->withoutOverlapping()
+    ->when(fn (): bool => (bool) config('delivery-reminders.enabled'));
+
+Schedule::command('delivery-reminders:process-replies')
+    ->everyThirtyMinutes()
+    ->timezone('Australia/Melbourne')
+    ->withoutOverlapping()
+    ->when(fn (): bool => (bool) config('delivery-reminders.enabled'));

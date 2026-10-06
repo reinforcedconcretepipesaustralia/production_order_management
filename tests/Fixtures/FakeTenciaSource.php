@@ -22,6 +22,11 @@ class FakeTenciaSource extends TenciaSource
         return DB::connection();
     }
 
+    public function writeConnection(): ConnectionInterface
+    {
+        return DB::connection();
+    }
+
     protected function viewName(string $name): string
     {
         return $name;
@@ -139,6 +144,29 @@ class FakeTenciaSource extends TenciaSource
             $table->string('POSTCODE')->nullable();
         });
 
+        Schema::create('vwOPEN_ORDERS', function (Blueprint $table) {
+            $table->string('ENTITY');
+            $table->string('STATUS_FLAG')->nullable();
+            $table->string('LINE_STATUS')->nullable();
+            $table->string('REFERENCE_NBR');
+            $table->integer('REFERENCE_DUPLICATE')->default(0);
+            $table->integer('LINE_NBR')->default(1);
+            $table->unsignedBigInteger('LINE_UNIQUE_ID');
+            $table->string('STOCK_CODE');
+            $table->decimal('BACKORDER_QTY', 18, 6)->default(0);
+            $table->dateTime('LINE_DELIVERY_DATE')->nullable();
+            $table->string('CUSTOMER_CODE')->nullable();
+            $table->string('CUSTOMER_NAME')->nullable();
+            $table->string('CONTACT_NAME')->nullable();
+            $table->string('EMAIL_ADDRESS')->nullable();
+            $table->string('PROJECT_NAME')->nullable();
+            $table->string('ADDRESS_1')->nullable();
+            $table->string('ADDRESS_2')->nullable();
+            $table->string('SUBURB')->nullable();
+            $table->string('STATE')->nullable();
+            $table->string('POSTCODE')->nullable();
+        });
+
         foreach (['RCPVIC', 'RCPNSW', 'RCPQLD', 'RCPSA'] as $entity) {
             Schema::create($this->stateTableName($entity, 'SOR_LINES'), function (Blueprint $table) {
                 $table->integer('UNIQUE_ID');
@@ -161,6 +189,7 @@ class FakeTenciaSource extends TenciaSource
                 $table->string('REFERENCE_NBR');
                 $table->integer('REFERENCE_DUPLICATE')->default(0);
                 $table->dateTime('ORDER_DATE')->nullable();
+                $table->dateTime('DELIVERY_DATE')->nullable();
                 $table->string('STATUS_FLAG')->nullable();
                 $table->string('DELIVERY_NAME')->nullable();
                 $table->string('DELIVERY_NOTE_1')->nullable();
@@ -268,10 +297,49 @@ class FakeTenciaSource extends TenciaSource
             ?? $attributes['LINE_DELIVERY_DATE'];
         unset($attributes['DELIVERY_DATE']);
 
+        $openOrderOnly = [
+            'EMAIL_ADDRESS' => $attributes['EMAIL_ADDRESS'] ?? 'customer@example.com',
+            'CONTACT_NAME' => $attributes['CONTACT_NAME'] ?? null,
+            'PROJECT_NAME' => $attributes['PROJECT_NAME'] ?? null,
+            'REFERENCE_DUPLICATE' => (int) ($attributes['REFERENCE_DUPLICATE'] ?? 0),
+        ];
+        unset(
+            $attributes['EMAIL_ADDRESS'],
+            $attributes['CONTACT_NAME'],
+            $attributes['PROJECT_NAME'],
+            $attributes['REFERENCE_DUPLICATE'],
+        );
+
         if (Schema::hasTable('vwSALES_ORDERS')) {
             DB::table('vwSALES_ORDERS')->insert($attributes);
         }
 
+        if (Schema::hasTable('vwOPEN_ORDERS')) {
+            DB::table('vwOPEN_ORDERS')->insert([
+                'ENTITY' => $entity,
+                'STATUS_FLAG' => $attributes['STATUS_FLAG'],
+                'LINE_STATUS' => $attributes['LINE_STATUS'],
+                'REFERENCE_NBR' => $attributes['REFERENCE_NBR'],
+                'REFERENCE_DUPLICATE' => $openOrderOnly['REFERENCE_DUPLICATE'],
+                'LINE_NBR' => $attributes['LINE_NBR'],
+                'LINE_UNIQUE_ID' => (int) $attributes['LINE_UNIQUE_ID'],
+                'STOCK_CODE' => $attributes['STOCK_CODE'],
+                'BACKORDER_QTY' => $attributes['BACKORDER_QTY'],
+                'LINE_DELIVERY_DATE' => $attributes['LINE_DELIVERY_DATE'],
+                'CUSTOMER_CODE' => $attributes['CUSTOMER_CODE'] ?? null,
+                'CUSTOMER_NAME' => $attributes['CUSTOMER_NAME'] ?? null,
+                'CONTACT_NAME' => $openOrderOnly['CONTACT_NAME'],
+                'EMAIL_ADDRESS' => $openOrderOnly['EMAIL_ADDRESS'],
+                'PROJECT_NAME' => $openOrderOnly['PROJECT_NAME'],
+                'ADDRESS_1' => $attributes['ADDRESS_1'] ?? null,
+                'ADDRESS_2' => $attributes['ADDRESS_2'] ?? null,
+                'SUBURB' => $attributes['SUBURB'] ?? null,
+                'STATE' => $attributes['STATE'] ?? null,
+                'POSTCODE' => $attributes['POSTCODE'] ?? null,
+            ]);
+        }
+
+        $attributes['REFERENCE_DUPLICATE'] = $openOrderOnly['REFERENCE_DUPLICATE'];
         $this->addStateOrderLine($entity, $attributes);
 
         return $this;
@@ -324,7 +392,7 @@ class FakeTenciaSource extends TenciaSource
             'UNIQUE_ID' => $attributes['UNIQUE_ID'],
             'TRANS_TYPE' => $attributes['TRANS_TYPE'],
             'REFERENCE_NBR' => $attributes['REFERENCE_NBR'],
-            'REFERENCE_DUPLICATE' => 0,
+            'REFERENCE_DUPLICATE' => (int) ($attributes['REFERENCE_DUPLICATE'] ?? 0),
             'LINE_NBR' => $attributes['LINE_NBR'],
             'STOCK_CODE' => $attributes['STOCK_CODE'],
             'STOCK_LOCATION' => $attributes['STOCK_LOCATION'] ?? null,
@@ -343,8 +411,9 @@ class FakeTenciaSource extends TenciaSource
         $headers->insert([
             'TRANS_TYPE' => $attributes['TRANS_TYPE'],
             'REFERENCE_NBR' => $attributes['REFERENCE_NBR'],
-            'REFERENCE_DUPLICATE' => 0,
+            'REFERENCE_DUPLICATE' => (int) ($attributes['REFERENCE_DUPLICATE'] ?? 0),
             'ORDER_DATE' => $attributes['ORDER_DATE'],
+            'DELIVERY_DATE' => $attributes['LINE_DELIVERY_DATE'],
             'STATUS_FLAG' => $attributes['STATUS_FLAG'],
             'DELIVERY_NAME' => $attributes['DELIVERY_NAME'],
             'DELIVERY_NOTE_1' => $attributes['DELIVERY_NOTE_1'],

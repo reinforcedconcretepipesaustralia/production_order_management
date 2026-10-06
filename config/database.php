@@ -136,6 +136,31 @@ return [
             'login_timeout' => env('RCPA_SQL_LOGIN_TIMEOUT', 5),
         ],
 
+        /*
+        | RCPA SQL Server write login — used only for delivery-reminder date updates.
+        | Keep separate credentials from the read-only RCPA_SQL_* login. Store values
+        | in local/deploy .env only; never commit them.
+        */
+        'rcpa_sql_write' => [
+            'driver' => 'sqlsrv',
+            'url' => env('RCPA_SQL_WRITE_URL'),
+            'host' => env('RCPA_SQL_WRITE_HOST', env('RCPA_SQL_HOST', 'RCP-AUS-SQL01')),
+            'port' => env('RCPA_SQL_WRITE_PORT', env('RCPA_SQL_PORT', '1433')),
+            'database' => env('RCPA_SQL_WRITE_DATABASE', env('RCPA_SQL_DATABASE')),
+            'username' => env('RCPA_SQL_WRITE_USERNAME'),
+            'password' => env('RCPA_SQL_WRITE_PASSWORD'),
+            'charset' => env('RCPA_SQL_WRITE_CHARSET', env('RCPA_SQL_CHARSET', 'utf8')),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'encrypt' => env('RCPA_SQL_WRITE_ENCRYPT', env('RCPA_SQL_ENCRYPT', 'yes')),
+            'trust_server_certificate' => env(
+                'RCPA_SQL_WRITE_TRUST_SERVER_CERTIFICATE',
+                env('RCPA_SQL_TRUST_SERVER_CERTIFICATE', 'false'),
+            ),
+            'readonly' => false,
+            'login_timeout' => env('RCPA_SQL_WRITE_LOGIN_TIMEOUT', env('RCPA_SQL_LOGIN_TIMEOUT', 5)),
+        ],
+
     ],
 
     /*

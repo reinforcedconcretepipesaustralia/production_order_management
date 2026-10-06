@@ -4,6 +4,7 @@ namespace App\Support\Rcpa;
 
 use App\Models\Rcpa\ReadOnlyView;
 use App\Models\Rcpa\VwBOMLINESView;
+use App\Models\Rcpa\VwOPENORDERSView;
 use App\Models\Rcpa\VwProductionView;
 use App\Models\Rcpa\VwSALESORDERSView;
 use App\Models\Rcpa\VwSALESView;
@@ -19,6 +20,7 @@ final class RcpaViewCatalog
     {
         return [
             VwBOMLINESView::class,
+            VwOPENORDERSView::class,
             VwProductionView::class,
             VwSALESORDERSView::class,
             VwSALESView::class,

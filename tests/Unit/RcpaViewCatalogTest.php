@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Models\Rcpa\ReadOnlyView;
 use App\Models\Rcpa\VwBOMLINESView;
+use App\Models\Rcpa\VwOPENORDERSView;
 use App\Models\Rcpa\VwProductionView;
 use App\Models\Rcpa\VwSALESORDERSView;
 use App\Models\Rcpa\VwSALESView;
@@ -20,6 +21,7 @@ class RcpaViewCatalogTest extends TestCase
 
         $this->assertSame([
             VwBOMLINESView::class,
+            VwOPENORDERSView::class,
             VwProductionView::class,
             VwSALESORDERSView::class,
             VwSALESView::class,

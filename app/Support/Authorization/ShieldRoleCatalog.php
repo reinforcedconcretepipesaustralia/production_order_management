@@ -4,6 +4,7 @@ namespace App\Support\Authorization;
 
 use App\Enums\AppRole;
 use App\Enums\Capability;
+use App\Filament\Pages\DeliveryReminders;
 use App\Filament\Pages\ErpViews;
 use App\Filament\Pages\LogisticsLoadBuilder;
 use App\Filament\Pages\PlanReview;
@@ -87,6 +88,10 @@ class ShieldRoleCatalog
         ],
         SteelRequisitionDashboard::class => [
             'capabilities' => [Capability::ViewMaterials],
+            'national' => true,
+        ],
+        DeliveryReminders::class => [
+            'capabilities' => [Capability::ViewDashboards, Capability::ViewSchedules],
             'national' => true,
         ],
     ];

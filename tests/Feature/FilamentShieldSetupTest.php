@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\AppRole;
 use App\Enums\Capability;
+use App\Filament\Pages\DeliveryReminders;
 use App\Filament\Pages\ProductionBoard;
 use App\Filament\Resources\Users\UserResource;
 use App\Models\User;
@@ -60,6 +61,14 @@ class FilamentShieldSetupTest extends TestCase
         $this->assertFalse($executive->can('View:ErpViews'));
         $this->assertTrue($executive->can(
             app(ShieldRoleCatalog::class)->pagePermissionKey(ProductionBoard::class),
+        ));
+        $this->assertTrue($executive->can(
+            app(ShieldRoleCatalog::class)->pagePermissionKey(DeliveryReminders::class),
+        ));
+
+        $operator = User::factory()->withAppRoles(AppRole::DepotOperator)->create();
+        $this->assertFalse($operator->can(
+            app(ShieldRoleCatalog::class)->pagePermissionKey(DeliveryReminders::class),
         ));
     }
 

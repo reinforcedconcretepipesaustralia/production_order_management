@@ -56,6 +56,7 @@ class AdminPanelProvider extends PanelProvider
             ->sidebarCollapsibleOnDesktop()
             ->navigationGroups([
                 'Operations',
+                'Logistics',
                 'Plant Configuration',
                 'Data',
                 'Access',
