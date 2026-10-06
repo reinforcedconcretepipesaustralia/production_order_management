@@ -8,9 +8,7 @@ use App\Models\Depot;
 use App\Models\ProductionSchedule;
 use App\Models\SteelForecast;
 use App\Services\Rcpa\RcpaViewReadService;
-use App\Services\Scheduling\SteelDemandLine;
-use App\Services\Scheduling\SteelPlanningService;
-use App\Services\Scheduling\SteelStockPosition;
+use App\Services\Scheduling\SteelForecastWorkbook;
 use App\Support\Rcpa\RcpaViewCatalog;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -25,7 +23,9 @@ class SteelRequisitionDashboard extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Operations';
 
-    protected static ?string $navigationLabel = 'Steel Requisitions';
+    protected static ?string $navigationLabel = 'Steel Forecast';
+
+    protected static ?string $title = 'Steel Forecast';
 
     protected static ?int $navigationSort = 20;
 
@@ -42,7 +42,7 @@ class SteelRequisitionDashboard extends Page
         return static::canViewOperationalPage();
     }
 
-    public function calculateForecasts(SteelPlanningService $steelPlanningService): void
+    public function calculateForecasts(SteelForecastWorkbook $workbook): void
     {
         $depots = $this->filteredDepots();
 
@@ -52,7 +52,7 @@ class SteelRequisitionDashboard extends Page
             403,
         );
 
-        $this->buildRows($steelPlanningService);
+        $this->buildTables($workbook);
         $this->calculatedAt = now()->toIso8601String();
 
         Notification::make()
@@ -67,12 +67,8 @@ class SteelRequisitionDashboard extends Page
      */
     protected function getViewData(): array
     {
-        $rows = $this->buildRows(app(SteelPlanningService::class));
+        $tables = $this->buildTables(app(SteelForecastWorkbook::class));
         $urgencies = ['critical', 'overdue', 'watch', 'covered'];
-
-        if (in_array($this->urgency, $urgencies, true)) {
-            $rows = $rows->where('urgency', $this->urgency)->values();
-        }
 
         $filters = $this->operationalFilterOptions();
         $wireCodes = SteelForecast::query()
@@ -87,7 +83,7 @@ class SteelRequisitionDashboard extends Page
             ...$filters,
             'wireCodes' => $wireCodes,
             'urgencies' => $urgencies,
-            'rows' => $rows,
+            'tables' => $tables,
             'erpStock' => $reader->stockOnHand(),
             'erpBom' => $reader->bomLines(),
             'canCalculate' => $this->filteredDepots()->isNotEmpty()
@@ -100,68 +96,56 @@ class SteelRequisitionDashboard extends Page
     /**
      * @return Collection<int, array<string, mixed>>
      */
-    private function buildRows(SteelPlanningService $steelPlanningService): Collection
+    private function buildTables(SteelForecastWorkbook $workbook): Collection
     {
-        $depotIds = $this->filteredDepots()->pluck('id');
+        $depots = $this->filteredDepots();
 
-        return SteelForecast::query()
+        $forecasts = SteelForecast::query()
             ->with('depot')
-            ->whereIn('depot_id', $depotIds)
+            ->whereIn('depot_id', $depots->modelKeys())
             ->when($this->wireCode !== '', fn (Builder $query) => $query->where('wire_code', $this->wireCode))
             ->orderBy('forecast_date')
             ->orderBy('wire_code')
-            ->get()
-            ->map(function (SteelForecast $forecast) use ($steelPlanningService): array {
-                $schedules = $this->applyOperationalFilters(
-                    ProductionSchedule::query()
-                        // Only this gauge's requirement, since a pipe consumes several.
-                        ->with(['sku.wireRequirements' => fn ($query) => $query->where('wire_code', $forecast->wire_code)])
-                        ->where('depot_id', $forecast->depot_id)
-                        // Compared as instants, not 'Y-m-d' strings: schedule_date is a date cast, so its
-                        // midnight time sorts after a bare date and the window's last day drops out.
-                        ->whereBetween('schedule_date', [
-                            $forecast->forecast_date->copy()->startOfDay(),
-                            $forecast->forecast_date->copy()->addDays(13)->endOfDay(),
-                        ])
-                        ->whereNotIn('status', ['cancelled'])
-                        ->whereHas(
-                            'sku.wireRequirements',
-                            fn (Builder $query) => $query->where('wire_code', $forecast->wire_code),
-                        )
-                        ->orderBy('schedule_date'),
-                )->get();
+            ->get();
 
-                $result = $steelPlanningService->calculate(
-                    $schedules->flatMap(fn (ProductionSchedule $schedule): array => SteelDemandLine::forSku(
-                        $schedule->depot_id,
-                        $schedule->sku,
-                        (int) $schedule->planned_quantity,
-                    )),
-                    SteelStockPosition::fromForecast($forecast),
-                );
+        $tables = $workbook->tables(
+            $depots,
+            $forecasts,
+            $this->applyOperationalFilters(ProductionSchedule::query()),
+        );
 
-                $kilogramsPerCoil = (float) $forecast->average_coil_weight_tonnes * 1_000;
-                $requiredCoils = (int) ceil((float) $result->requiredKg / $kilogramsPerCoil);
-                $recommendedCoils = (int) ceil((float) $result->recommendedOrderKg / $kilogramsPerCoil);
-                $urgency = match (true) {
-                    $recommendedCoils > 0 && $forecast->forecast_date->isPast() => 'overdue',
-                    $recommendedCoils > 0 => 'critical',
-                    (float) $result->projectedEndingKg < (float) $result->safetyStockKg => 'watch',
-                    default => 'covered',
-                };
+        if ($this->wireCode !== '') {
+            $tables = $this->keepWireColumns($tables, fn (string $code): bool => $code === $this->wireCode);
+        }
 
-                return [
-                    'forecast' => $forecast,
-                    'required_kg' => $result->requiredKg,
-                    'required_coils' => $requiredCoils,
-                    'stock_kg' => number_format($forecast->on_hand_coils * $kilogramsPerCoil, 3, '.', ''),
-                    'on_order_kg' => number_format($forecast->on_order_coils * $kilogramsPerCoil, 3, '.', ''),
-                    'shortfall_kg' => $result->recommendedOrderKg,
-                    'recommended_coils' => $recommendedCoils,
-                    'projected_ending_kg' => $result->projectedEndingKg,
-                    'urgency' => $urgency,
-                ];
-            });
+        if (! in_array($this->urgency, ['critical', 'overdue', 'watch', 'covered'], true)) {
+            return $tables;
+        }
+
+        return $this->keepWireColumns(
+            $tables,
+            fn (string $code, array $table): bool => ($table['urgencies'][$code] ?? null) === $this->urgency,
+        );
+    }
+
+    /**
+     * @param  Collection<int, array<string, mixed>>  $tables
+     * @param  callable(string, array<string, mixed>): bool  $keep
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function keepWireColumns(Collection $tables, callable $keep): Collection
+    {
+        return $tables
+            ->map(function (array $table) use ($keep): array {
+                $table['wire_codes'] = array_values(array_filter(
+                    $table['wire_codes'],
+                    fn (string $code): bool => $keep($code, $table),
+                ));
+
+                return $table;
+            })
+            ->reject(fn (array $table): bool => $table['wire_codes'] === [])
+            ->values();
     }
 
     /**

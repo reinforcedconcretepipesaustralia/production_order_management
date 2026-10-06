@@ -1,4 +1,15 @@
 <x-filament-panels::page>
+    <style>
+        .steel-forecast-table { border-collapse: collapse; width: 100%; min-width: 48rem; font-size: 0.875rem; }
+        .steel-forecast-table th, .steel-forecast-table td { border: 1px solid #bcbdbc; padding: 0.5rem 0.75rem; }
+        .steel-forecast-table thead th { background: #002f67; color: #fff; font-weight: 600; }
+        .steel-forecast-table thead tr:last-child th { background: #0a3d7c; }
+        .steel-forecast-table tbody td { text-align: right; font-variant-numeric: tabular-nums; }
+        .steel-forecast-table tbody th { text-align: left; font-weight: 500; }
+        .steel-forecast-table .is-input th, .steel-forecast-table .is-input td { background: #fff6c7; }
+        .steel-forecast-table .is-order th, .steel-forecast-table .is-order td { background: #e8f5ee; color: #1e6e42; font-weight: 600; }
+    </style>
+
     <x-filament::section>
         <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <x-operational-filters
@@ -7,7 +18,7 @@
                 :shifts="$shifts"
                 :machines="$machines"
                 :columns="5"
-                aria-label="Steel requisition filters"
+                aria-label="Steel forecast filters"
             >
                 <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
                     Wire code
@@ -42,7 +53,7 @@
         @endif
     </x-filament::section>
 
-    @if ($rows->isEmpty())
+    @if ($tables->isEmpty())
         <x-filament::section>
             <div class="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center dark:border-white/15">
                 <p class="font-semibold text-gray-900 dark:text-white">No steel forecasts found</p>
@@ -50,59 +61,73 @@
             </div>
         </x-filament::section>
     @else
-        <div class="grid gap-4 xl:grid-cols-2">
-            @foreach ($rows as $row)
-                @php($forecast = $row['forecast'])
-                <x-filament::section>
-                    <x-slot name="heading">{{ $forecast->wire_code }}</x-slot>
-                    <x-slot name="description">{{ $forecast->depot->code }} · Due {{ $forecast->forecast_date->format('d M Y') }}</x-slot>
+        @foreach ($tables as $table)
+            <x-filament::section>
+                <x-slot name="heading">Steel Forecast</x-slot>
+                <x-slot name="description">{{ $table['depot']->code }} · Tonnes by Tencia wire stock code</x-slot>
 
-                    <div class="mb-4">
-                        <x-filament::badge :color="match ($row['urgency']) {
-                            'overdue' => 'danger',
-                            'critical' => 'warning',
-                            'watch' => 'info',
-                            default => 'success',
-                        }">
-                            {{ str($row['urgency'])->title() }}
-                        </x-filament::badge>
-                    </div>
+                <div class="overflow-x-auto">
+                    <table class="steel-forecast-table">
+                        <thead>
+                            <tr>
+                                <th colspan="2"></th>
+                                <th colspan="{{ max(1, count($table['wire_codes'])) }}" style="text-align: center">
+                                    Wire Diameter — Tencia Stock Code
+                                </th>
+                            </tr>
+                            <tr>
+                                <th>DATE FROM</th>
+                                <th>DATE TO</th>
+                                @foreach ($table['wire_codes'] as $wireCode)
+                                    <th style="text-align: right">{{ $wireCode }}</th>
+                                @endforeach
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($table['weeks'] as $week)
+                                <tr>
+                                    <td style="text-align: left">{{ $week['from']->format('j/n/Y') }}</td>
+                                    <td style="text-align: left">{{ $week['to']->format('j/n/Y') }}</td>
+                                    @foreach ($table['wire_codes'] as $wireCode)
+                                        <td>{{ $week['tonnes'][$wireCode] }}</td>
+                                    @endforeach
+                                </tr>
+                            @endforeach
 
-                    <dl class="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
-                        <div>
-                            <dt class="text-gray-500">Required</dt>
-                            <dd class="font-semibold text-gray-900 dark:text-white">{{ number_format((float) $row['required_kg'], 1) }} kg</dd>
-                            <dd class="text-xs text-gray-500">{{ $row['required_coils'] }} coils</dd>
-                        </div>
-                        <div>
-                            <dt class="text-gray-500">On hand</dt>
-                            <dd class="font-semibold text-gray-900 dark:text-white">{{ number_format((float) $row['stock_kg'], 1) }} kg</dd>
-                            <dd class="text-xs text-gray-500">{{ $forecast->on_hand_coils }} coils</dd>
-                        </div>
-                        <div>
-                            <dt class="text-gray-500">On order</dt>
-                            <dd class="font-semibold text-gray-900 dark:text-white">{{ number_format((float) $row['on_order_kg'], 1) }} kg</dd>
-                            <dd class="text-xs text-gray-500">{{ $forecast->on_order_coils }} coils</dd>
-                        </div>
-                        <div>
-                            <dt class="text-gray-500">Projected ending</dt>
-                            <dd class="font-semibold {{ (float) $row['projected_ending_kg'] < 0 ? 'text-danger-700' : 'text-gray-900 dark:text-white' }}">
-                                {{ number_format((float) $row['projected_ending_kg'], 1) }} kg
-                            </dd>
-                        </div>
-                        <div class="col-span-2">
-                            <dt class="text-gray-500">Replenishment shortfall</dt>
-                            <dd class="font-semibold {{ $row['recommended_coils'] > 0 ? 'text-danger-700' : 'text-success-700' }}">
-                                {{ number_format((float) $row['shortfall_kg'], 1) }} kg
-                                @if ($row['recommended_coils'] > 0)
-                                    · {{ $row['recommended_coils'] }} coils recommended
-                                @endif
-                            </dd>
-                        </div>
-                    </dl>
-                </x-filament::section>
-            @endforeach
-        </div>
+                            <tr>
+                                <td colspan="{{ 2 + count($table['wire_codes']) }}" style="border: 0; height: 0.75rem"></td>
+                            </tr>
+
+                            @php
+                                $summaryRows = [
+                                    ['label' => 'Requirement', 'values' => $table['requirement'], 'tone' => 'plain'],
+                                    ['label' => 'Coils on hand', 'values' => $table['coils_on_hand'], 'tone' => 'input'],
+                                    ['label' => 'Average weight per coil', 'values' => $table['average_coil_weight'], 'tone' => 'plain'],
+                                    ['label' => 'Tonnes on hand', 'values' => $table['tonnes_on_hand'], 'tone' => 'plain'],
+                                    ['label' => 'On order not delivered', 'values' => $table['on_order'], 'tone' => 'input'],
+                                    ['label' => 'Steel being delivered from other state', 'values' => $table['transfers_in'], 'tone' => 'input'],
+                                    ['label' => 'Calculated stock at end of period', 'values' => $table['ending_stock'], 'tone' => 'plain'],
+                                    ['label' => 'Safety stock level (2 weeks based average of consumption)', 'values' => $table['safety_stock'], 'tone' => 'plain'],
+                                    ['label' => 'Planned new order quantity', 'values' => $table['planned_order'], 'tone' => 'order'],
+                                ];
+                            @endphp
+
+                            @foreach ($summaryRows as $row)
+                                <tr @class([
+                                    'is-input' => $row['tone'] === 'input',
+                                    'is-order' => $row['tone'] === 'order',
+                                ])>
+                                    <th colspan="2">{{ $row['label'] }}</th>
+                                    @foreach ($table['wire_codes'] as $wireCode)
+                                        <td>{{ $row['values'][$wireCode] }}</td>
+                                    @endforeach
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </x-filament::section>
+        @endforeach
     @endif
 
     <x-filament::section>

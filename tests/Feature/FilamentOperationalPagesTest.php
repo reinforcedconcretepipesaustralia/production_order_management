@@ -45,7 +45,7 @@ class FilamentOperationalPagesTest extends TestCase
         return [
             'production board' => [ProductionBoard::class],
             'demand vs prod plan' => [DemandVsProdPlan::class],
-            'steel requisitions' => [SteelRequisitionDashboard::class],
+            'steel forecast' => [SteelRequisitionDashboard::class],
             'load builder' => [LogisticsLoadBuilder::class],
         ];
     }
@@ -261,6 +261,8 @@ class FilamentOperationalPagesTest extends TestCase
 
     public function test_materials_buyer_sees_assigned_forecasts_and_can_recalculate(): void
     {
+        $this->travelTo('2026-11-11 09:00:00');
+
         $assignedDepot = Depot::factory()->create(['code' => 'BUYER']);
         $otherDepot = Depot::factory()->create(['code' => 'HIDDEN']);
         $buyer = User::factory()->withAppRoles(AppRole::MaterialsBuyer)->create();
@@ -299,8 +301,11 @@ class FilamentOperationalPagesTest extends TestCase
 
         $component = Livewire::actingAs($buyer)
             ->test(SteelRequisitionDashboard::class)
+            ->assertSee('DATE FROM')
+            ->assertSee('DATE TO')
             ->assertSee('WIRE-A')
-            ->assertSee('3 coils recommended')
+            ->assertSee('Planned new order quantity')
+            ->assertSee('3')
             ->assertDontSee('WIRE-HIDDEN')
             ->call('calculateForecasts')
             ->assertHasNoErrors();
