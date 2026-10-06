@@ -6,9 +6,11 @@ use App\Models\Depot;
 use App\Models\PlanChangeLogEntry;
 use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
+use App\Models\Shift;
 use App\Models\SkuMaster;
 use App\Models\User;
 use App\Services\Planning\PlanReviewService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use RuntimeException;
 use Tests\TestCase;
@@ -122,6 +124,95 @@ class PlanReviewServiceTest extends TestCase
             ['priority', 'quantity', 'steamed'],
             PlanChangeLogEntry::query()->orderBy('field')->pluck('field')->all(),
         );
+    }
+
+    public function test_a_shift_change_moves_the_clock_onto_that_shift(): void
+    {
+        $afternoon = Shift::factory()->create([
+            'depot_id' => $this->depot->id,
+            'name' => 'Afternoon',
+            'starts_at' => '16:00:00',
+            'duration_minutes' => 360,
+        ]);
+        $line = $this->line([
+            'schedule_date' => '2026-09-21',
+            'planned_start_at' => '2026-09-21 06:00:00',
+            'planned_end_at' => '2026-09-21 14:00:00',
+        ]);
+
+        $applied = $this->review->updateLine($line, ['shift_id' => $afternoon->id], $this->planner);
+
+        $fresh = $line->fresh();
+
+        $this->assertSame(1, $applied);
+        $this->assertSame($afternoon->id, $fresh->shift_id);
+        $this->assertSame('2026-09-21 16:00:00', $fresh->planned_start_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-09-22 00:00:00', $fresh->planned_end_at->format('Y-m-d H:i:s'));
+        $this->assertSame('shift', PlanChangeLogEntry::query()->sole()->field);
+    }
+
+    public function test_a_shift_at_another_plant_is_rejected(): void
+    {
+        $other = Shift::factory()->create(['name' => 'Foreign']);
+        $line = $this->line();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('That shift is not at the same plant as this line.');
+
+        $this->review->updateLine($line, ['shift_id' => $other->id], $this->planner);
+    }
+
+    public function test_a_held_line_cannot_be_edited_until_it_is_released(): void
+    {
+        $line = $this->line(['is_locked' => true, 'planned_quantity' => 340]);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('This line is held');
+
+        $this->review->updateLine($line, ['planned_quantity' => 1], $this->planner);
+    }
+
+    public function test_approving_a_week_holds_only_that_week(): void
+    {
+        $this->run->update([
+            'horizon_from' => '2026-09-21',
+            'horizon_to' => '2026-10-18',
+        ]);
+        $first = $this->line(['schedule_date' => '2026-09-22']);
+        $later = $this->line(['schedule_date' => '2026-10-06']);
+
+        $held = $this->review->approvePeriod(
+            $this->run,
+            CarbonImmutable::parse('2026-09-21'),
+            CarbonImmutable::parse('2026-09-27'),
+            $this->planner,
+        );
+
+        $this->assertSame(1, $held);
+        $this->assertTrue($this->run->fresh()->isDraft());
+        $this->assertTrue($first->fresh()->is_locked);
+        $this->assertSame('scheduled', $first->fresh()->status);
+        $this->assertFalse($later->fresh()->is_locked);
+        $this->assertSame('draft', $later->fresh()->status);
+    }
+
+    public function test_approving_the_last_open_week_approves_the_plan(): void
+    {
+        $this->run->update([
+            'horizon_from' => '2026-09-21',
+            'horizon_to' => '2026-09-27',
+        ]);
+        $this->line(['schedule_date' => '2026-09-22']);
+
+        $this->review->approvePeriod(
+            $this->run,
+            CarbonImmutable::parse('2026-09-21'),
+            CarbonImmutable::parse('2026-09-27'),
+            $this->planner,
+        );
+
+        $this->assertTrue($this->run->fresh()->isApproved());
+        $this->assertSame($this->planner->id, $this->run->fresh()->approved_by);
     }
 
     public function test_a_field_the_engine_owns_cannot_be_changed_by_hand(): void

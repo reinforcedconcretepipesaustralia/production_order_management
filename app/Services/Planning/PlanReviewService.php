@@ -5,8 +5,10 @@ namespace App\Services\Planning;
 use App\Models\PlanChangeLogEntry;
 use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
+use App\Models\Shift;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -28,6 +30,7 @@ final class PlanReviewService
     private const EDITABLE = [
         'planned_quantity' => 'quantity',
         'schedule_date' => 'date',
+        'shift_id' => 'shift',
         'shift_fraction' => 'share of shift',
         'priority' => 'priority',
         'is_steamed' => 'steamed',
@@ -61,6 +64,9 @@ final class PlanReviewService
                         ? null
                         : CarbonImmutable::parse((string) $value)->toDateString();
                     $before = $line->schedule_date?->toDateString();
+                } elseif ($field === 'shift_id') {
+                    $value = $value === null || $value === '' ? null : (int) $value;
+                    $before = $line->shift_id;
                 } else {
                     $before = $line->getAttribute($field);
                 }
@@ -75,6 +81,8 @@ final class PlanReviewService
                     }
 
                     $this->moveLineToDate($line, $value);
+                } elseif ($field === 'shift_id') {
+                    $this->moveLineToShift($line, $value);
                 } else {
                     $line->setAttribute($field, $value);
                 }
@@ -103,7 +111,7 @@ final class PlanReviewService
         ?User $user = null,
         ?string $reason = null,
     ): void {
-        $this->guardEditable($line);
+        $this->guardReviewable($line);
 
         if ($line->is_locked === $locked) {
             return;
@@ -130,17 +138,7 @@ final class PlanReviewService
         DB::transaction(function () use ($run, $user): void {
             // The run's own lines and the ones carried over from an earlier run: both are work the
             // floor will do, so approval commits both.
-            ProductionSchedule::query()
-                ->where(fn ($query) => $query
-                    ->where('plan_run_id', $run->id)
-                    ->orWhere(fn ($carried) => $carried
-                        ->whereIn('depot_id', $run->depot_ids ?? [])
-                        ->whereBetween('schedule_date', [
-                            $run->horizon_from->startOfDay(),
-                            $run->horizon_to->endOfDay(),
-                        ])
-                        ->where('origin', ProductionSchedule::ORIGIN_MANUAL)
-                        ->whereNot('status', 'cancelled')))
+            $this->reviewableLines($run)
                 ->update(['is_locked' => true, 'status' => 'scheduled']);
 
             $run->update([
@@ -170,6 +168,47 @@ final class PlanReviewService
     }
 
     /**
+     * Hold and schedule the lines in a week or month. The run stays a draft until every remaining
+     * line in it is held, so a planner can sign off one week without locking the rest of the horizon.
+     */
+    public function approvePeriod(
+        PlanRun $run,
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        ?User $user = null,
+    ): int {
+        if (! $run->isDraft()) {
+            throw new RuntimeException('Only a draft plan can be approved.');
+        }
+
+        if ($to->isBefore($from)) {
+            throw new RuntimeException('The approval window must end on or after it starts.');
+        }
+
+        $held = 0;
+
+        DB::transaction(function () use ($run, $from, $to, $user, &$held): void {
+            $held = $this->reviewableLines($run)
+                ->whereBetween('schedule_date', [$from->startOfDay(), $to->endOfDay()])
+                ->update(['is_locked' => true, 'status' => 'scheduled']);
+
+            $stillOpen = $this->reviewableLines($run)
+                ->where('is_locked', false)
+                ->exists();
+
+            if (! $stillOpen) {
+                $run->update([
+                    'status' => PlanRun::STATUS_APPROVED,
+                    'approved_by' => $user?->id,
+                    'approved_at' => now(),
+                ]);
+            }
+        });
+
+        return $held;
+    }
+
+    /**
      * Keep the line on the same clock when the planner moves the day, so a 6am start stays 6am.
      */
     private function moveLineToDate(ProductionSchedule $line, string $date): void
@@ -191,7 +230,68 @@ final class PlanReviewService
         $line->schedule_date = $newDate->toDateString();
     }
 
+    private function moveLineToShift(ProductionSchedule $line, ?int $shiftId): void
+    {
+        if ($shiftId === null) {
+            throw new RuntimeException('A plan line needs a shift.');
+        }
+
+        $shift = Shift::query()->find($shiftId);
+
+        if ($shift === null || $shift->depot_id !== $line->depot_id) {
+            throw new RuntimeException('That shift is not at the same plant as this line.');
+        }
+
+        $duration = $line->planned_start_at !== null && $line->planned_end_at !== null
+            ? max(15, $line->planned_start_at->diffInMinutes($line->planned_end_at))
+            : max(15, (int) $shift->duration_minutes);
+
+        $date = $line->schedule_date === null
+            ? now()->toImmutable()->startOfDay()
+            : CarbonImmutable::parse($line->schedule_date->toDateString())->startOfDay();
+
+        $start = $this->shiftStartOn($date, $shift);
+
+        $line->shift_id = $shift->id;
+        $line->planned_start_at = $start;
+        $line->planned_end_at = $start->addMinutes($duration);
+    }
+
+    private function shiftStartOn(CarbonImmutable $date, Shift $shift): CarbonImmutable
+    {
+        $parts = array_map('intval', explode(':', (string) $shift->starts_at));
+
+        return $date->setTime($parts[0] ?? 0, $parts[1] ?? 0);
+    }
+
+    /**
+     * @return Builder<ProductionSchedule>
+     */
+    private function reviewableLines(PlanRun $run): Builder
+    {
+        return ProductionSchedule::query()
+            ->where(fn (Builder $query) => $query
+                ->where('plan_run_id', $run->id)
+                ->orWhere(fn (Builder $carried) => $carried
+                    ->whereIn('depot_id', $run->depot_ids ?? [])
+                    ->whereBetween('schedule_date', [
+                        $run->horizon_from->startOfDay(),
+                        $run->horizon_to->endOfDay(),
+                    ])
+                    ->where('origin', ProductionSchedule::ORIGIN_MANUAL)
+                    ->whereNot('status', 'cancelled')));
+    }
+
     private function guardEditable(ProductionSchedule $line): void
+    {
+        $this->guardReviewable($line);
+
+        if ($line->is_locked) {
+            throw new RuntimeException('This line is held. Release it before changing it.');
+        }
+    }
+
+    private function guardReviewable(ProductionSchedule $line): void
     {
         $run = $line->planRun;
 

@@ -2,16 +2,23 @@
 
 namespace App\Filament\Pages;
 
+use App\Enums\Capability;
 use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\Depot;
+use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
+use App\Models\Shift;
+use App\Services\Planning\PlanReviewService;
 use App\Services\Rcpa\RcpaViewReadService;
 use App\Services\Scheduling\MouldConstraintService;
 use App\Services\Scheduling\ShiftCapacityCalculator;
 use App\Support\Rcpa\RcpaViewCatalog;
 use Carbon\CarbonImmutable;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use RuntimeException;
 
 class ProductionBoard extends Page
 {
@@ -21,7 +28,9 @@ class ProductionBoard extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Operations';
 
-    protected static ?string $navigationLabel = 'Production Board';
+    protected static ?string $navigationLabel = 'Production Plan';
+
+    protected static ?string $title = 'Production Plan';
 
     protected static ?int $navigationSort = 10;
 
@@ -33,15 +42,23 @@ class ProductionBoard extends Page
 
     public string $status = '';
 
+    public ?int $planRunId = null;
+
     public function mount(): void
     {
         $this->fromDate = now()->startOfWeek()->toDateString();
         $this->toDate = now()->endOfWeek()->toDateString();
+        $this->planRunId = $this->defaultRunId();
     }
 
     public static function canAccess(): bool
     {
         return static::canViewOperationalPage();
+    }
+
+    public function canManage(): bool
+    {
+        return static::operationalUser()?->hasCapability(Capability::ManageSchedules) ?? false;
     }
 
     /**
@@ -53,17 +70,15 @@ class ProductionBoard extends Page
         [$from, $to] = $this->dateRange();
         $statuses = ['draft', 'scheduled', 'in_progress', 'completed', 'cancelled'];
         $selectedStatus = in_array($this->status, $statuses, true) ? $this->status : '';
+        $run = $this->planRun();
 
         $schedules = $this->applyOperationalFilters(
             ProductionSchedule::query()
-                ->with(['depot', 'machine', 'mould', 'shift', 'sku'])
+                ->with(['depot', 'machine', 'mould', 'shift', 'sku', 'planRun'])
                 ->when($selectedStatus !== '', fn ($query) => $query->where('status', $selectedStatus))
-                // Compared as instants, not as 'Y-m-d' strings: the date cast persists a midnight time,
-                // so '2026-09-21 00:00:00' sorts after the bare '2026-09-21' and the window's last day
-                // drops out of the board.
                 ->whereBetween('schedule_date', [$from->startOfDay(), $to->endOfDay()])
                 ->orderBy('depot_id')
-                ->orderBy('machine_asset_id')
+                ->orderBy('schedule_date')
                 ->orderBy('planned_start_at')
                 ->orderBy('id'),
         )->get();
@@ -73,9 +88,11 @@ class ProductionBoard extends Page
         return [
             ...$filters,
             'statuses' => $statuses,
-            'days' => collect(range(0, $from->diffInDays($to)))
-                ->map(fn (int $offset): CarbonImmutable => $from->addDays($offset)),
-            'lanes' => $this->buildLanes($schedules),
+            'runs' => $this->selectableRuns(),
+            'run' => $run,
+            'canManage' => $this->canManage(),
+            'editable' => $this->canManage() && $run !== null && $run->isDraft(),
+            'grid' => $this->buildGrid($schedules, $from, $to),
             'erpProduction' => $reader->productionDemand(
                 $from->toDateString(),
                 $to->toDateString(),
@@ -84,44 +101,293 @@ class ProductionBoard extends Page
         ];
     }
 
+    public function moveLine(int $lineId, string $date, int $shiftId, PlanReviewService $review): void
+    {
+        $line = $this->reachableLine($lineId);
+
+        if ($line === null || ! $this->mayManage()) {
+            return;
+        }
+
+        try {
+            $review->updateLine($line, [
+                'schedule_date' => $date,
+                'shift_id' => $shiftId,
+            ], auth()->user(), 'Moved on the production plan');
+        } catch (RuntimeException $exception) {
+            Notification::make()->danger()->title($exception->getMessage())->send();
+
+            return;
+        }
+
+        Notification::make()->success()->title('Line moved.')->send();
+    }
+
+    public function updateQuantity(int $lineId, mixed $quantity, PlanReviewService $review): void
+    {
+        $line = $this->reachableLine($lineId);
+
+        if ($line === null || ! $this->mayManage()) {
+            return;
+        }
+
+        try {
+            $review->updateLine($line, [
+                'planned_quantity' => max(0, (int) $quantity),
+            ], auth()->user());
+        } catch (RuntimeException $exception) {
+            Notification::make()->danger()->title($exception->getMessage())->send();
+        }
+    }
+
+    public function approveWeek(PlanReviewService $review): void
+    {
+        [$from] = $this->dateRange();
+
+        $this->approvePeriod($review, $from->startOfWeek(), $from->endOfWeek());
+    }
+
+    public function approveMonth(PlanReviewService $review): void
+    {
+        [$from] = $this->dateRange();
+
+        $this->approvePeriod($review, $from->startOfMonth(), $from->endOfMonth());
+    }
+
+    public function approve(PlanReviewService $review): void
+    {
+        if (! $this->mayManage()) {
+            return;
+        }
+
+        $run = $this->planRun();
+
+        if ($run === null) {
+            return;
+        }
+
+        try {
+            $review->approve($run, auth()->user());
+        } catch (RuntimeException $exception) {
+            Notification::make()->danger()->title($exception->getMessage())->send();
+
+            return;
+        }
+
+        Notification::make()->success()->title('Plan approved. Every line is now held.')->send();
+    }
+
+    public function discard(PlanReviewService $review): void
+    {
+        if (! $this->mayManage()) {
+            return;
+        }
+
+        $run = $this->planRun();
+
+        if ($run === null) {
+            return;
+        }
+
+        try {
+            $review->discard($run);
+        } catch (RuntimeException $exception) {
+            Notification::make()->danger()->title($exception->getMessage())->send();
+
+            return;
+        }
+
+        Notification::make()->success()->title('Plan discarded.')->send();
+
+        $this->planRunId = $this->defaultRunId();
+    }
+
+    public function planRun(): ?PlanRun
+    {
+        return $this->planRunId === null ? null : PlanRun::query()->with('approvedBy')->find($this->planRunId);
+    }
+
     /**
      * @param  Collection<int, ProductionSchedule>  $schedules
-     * @return Collection<string, array{depot: Depot, machine_name: string, schedules: Collection<int, array<string, mixed>>}>
+     * @return Collection<int, array<string, mixed>>
      */
-    private function buildLanes(Collection $schedules): Collection
+    private function buildGrid(Collection $schedules, CarbonImmutable $from, CarbonImmutable $to): Collection
     {
+        if ($schedules->isEmpty()) {
+            return collect();
+        }
+
         $capacityCalculator = app(ShiftCapacityCalculator::class);
         $constraintService = app(MouldConstraintService::class);
+        $days = collect(range(0, $from->diffInDays($to)))
+            ->map(fn (int $offset): CarbonImmutable => $from->addDays($offset));
 
-        return $schedules
-            ->groupBy(fn (ProductionSchedule $schedule): string => "{$schedule->depot_id}:{$schedule->machine_asset_id}")
-            ->map(function (Collection $laneSchedules) use ($capacityCalculator, $constraintService): array {
-                /** @var ProductionSchedule $first */
-                $first = $laneSchedules->first();
+        $items = $schedules->map(function (ProductionSchedule $schedule) use ($capacityCalculator, $constraintService): array {
+            $capacity = $capacityCalculator->calculate($schedule->shift, $schedule->sku);
+
+            return [
+                'model' => $schedule,
+                'capacity' => $capacity->plannedPipes,
+                'is_over_capacity' => $schedule->planned_quantity > $capacity->plannedPipes,
+                'conflicts' => $constraintService->conflictsFor($schedule),
+                'is_low_oee' => (float) $schedule->planned_oee_percent < 75,
+            ];
+        });
+
+        $depotIds = $schedules->pluck('depot_id')->unique()->all();
+        $shiftsByDepot = Shift::query()
+            ->whereIn('depot_id', $depotIds)
+            ->where('is_active', true)
+            ->orderBy('starts_at')
+            ->orderBy('name')
+            ->get()
+            ->groupBy('depot_id');
+
+        $depots = $schedules
+            ->map(fn (ProductionSchedule $schedule): Depot => $schedule->depot)
+            ->filter()
+            ->unique('id')
+            ->sortBy('code')
+            ->values();
+
+        return $depots->map(function (Depot $depot) use ($days, $items, $shiftsByDepot): array {
+            $shifts = $shiftsByDepot->get($depot->id, collect())->values();
+            $dayBlocks = $days->map(function (CarbonImmutable $day) use ($depot, $items, $shifts): array {
+                $shiftBlocks = $shifts->map(function (Shift $shift) use ($depot, $day, $items): array {
+                    $lines = $items
+                        ->filter(fn (array $item): bool => $item['model']->depot_id === $depot->id
+                            && $item['model']->shift_id === $shift->id
+                            && $item['model']->schedule_date?->isSameDay($day))
+                        ->values();
+
+                    return [
+                        'shift' => $shift,
+                        'lines' => $lines,
+                    ];
+                })->values();
+
+                $orphanLines = $items
+                    ->filter(fn (array $item): bool => $item['model']->depot_id === $depot->id
+                        && $item['model']->schedule_date?->isSameDay($day)
+                        && ! $shifts->contains('id', $item['model']->shift_id))
+                    ->groupBy(fn (array $item): int => (int) ($item['model']->shift_id ?? 0));
+
+                foreach ($orphanLines as $grouped) {
+                    $shiftBlocks->push([
+                        'shift' => $grouped->first()['model']->shift,
+                        'lines' => $grouped->values(),
+                    ]);
+                }
 
                 return [
-                    'depot' => $first->depot,
-                    'machine_name' => $first->machine?->name ?? $first->machine?->code ?? 'Unassigned machine',
-                    'schedules' => $laneSchedules->map(function (ProductionSchedule $schedule) use ($capacityCalculator, $constraintService): array {
-                        $capacity = $capacityCalculator->calculate($schedule->shift, $schedule->sku);
-                        $conflicts = $constraintService->conflictsFor($schedule);
-                        $dayStart = $schedule->planned_start_at->copy()->startOfDay();
-                        $startMinutes = $dayStart->diffInMinutes($schedule->planned_start_at);
-                        $durationMinutes = max(15, $schedule->planned_start_at->diffInMinutes($schedule->planned_end_at));
-
-                        return [
-                            'model' => $schedule,
-                            'capacity' => $capacity->plannedPipes,
-                            'is_over_capacity' => $schedule->planned_quantity > $capacity->plannedPipes,
-                            'conflicts' => $conflicts,
-                            'is_low_oee' => (float) $schedule->planned_oee_percent < 75,
-                            'left' => min(100, max(0, ($startMinutes / 1440) * 100)),
-                            'width' => min(100, max(2, ($durationMinutes / 1440) * 100)),
-                        ];
-                    }),
+                    'date' => $day,
+                    'shifts' => $shiftBlocks,
+                    'rowspan' => $shiftBlocks->sum(fn (array $block): int => max(1, $block['lines']->count())),
                 ];
-            })
-            ->values();
+            });
+
+            return [
+                'depot' => $depot,
+                'days' => $dayBlocks,
+            ];
+        });
+    }
+
+    private function approvePeriod(
+        PlanReviewService $review,
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+    ): void {
+        if (! $this->mayManage()) {
+            return;
+        }
+
+        $run = $this->planRun();
+
+        if ($run === null) {
+            return;
+        }
+
+        try {
+            $held = $review->approvePeriod($run, $from, $to, auth()->user());
+        } catch (RuntimeException $exception) {
+            Notification::make()->danger()->title($exception->getMessage())->send();
+
+            return;
+        }
+
+        $label = $from->equalTo($from->startOfMonth()) && $to->equalTo($from->endOfMonth())
+            ? $from->format('F Y')
+            : $from->format('j M').' to '.$to->format('j M');
+
+        Notification::make()
+            ->success()
+            ->title($run->fresh()?->isApproved()
+                ? 'The whole plan is now approved.'
+                : "Approved {$label}. {$held} line(s) held.")
+            ->send();
+    }
+
+    /**
+     * @return Collection<int, string>
+     */
+    private function selectableRuns(): Collection
+    {
+        return PlanRun::query()
+            ->latest('id')
+            ->limit(20)
+            ->get()
+            ->mapWithKeys(fn (PlanRun $run): array => [
+                $run->id => sprintf(
+                    '#%d — %s to %s (%s)',
+                    $run->id,
+                    $run->horizon_from->format('j M Y'),
+                    $run->horizon_to->format('j M Y'),
+                    $run->status,
+                ),
+            ]);
+    }
+
+    private function defaultRunId(): ?int
+    {
+        return PlanRun::query()
+            ->whereNot('status', PlanRun::STATUS_DISCARDED)
+            ->latest('id')
+            ->value('id')
+            ?? PlanRun::query()->latest('id')->value('id');
+    }
+
+    private function reachableLine(int $lineId): ?ProductionSchedule
+    {
+        $accessible = $this->accessibleDepotIds();
+
+        $line = ProductionSchedule::query()
+            ->with(['depot', 'sku', 'planRun', 'shift'])
+            ->when($accessible !== null, fn (Builder $query) => $query->whereIn('depot_id', $accessible))
+            ->find($lineId);
+
+        if ($line === null) {
+            Notification::make()
+                ->danger()
+                ->title('That line is not in this window, or not at a plant you can see.')
+                ->send();
+        }
+
+        return $line;
+    }
+
+    private function mayManage(): bool
+    {
+        if ($this->canManage()) {
+            return true;
+        }
+
+        Notification::make()
+            ->danger()
+            ->title('You can read this plan but not change it.')
+            ->send();
+
+        return false;
     }
 
     /**

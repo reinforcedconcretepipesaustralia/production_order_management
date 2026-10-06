@@ -18,7 +18,8 @@ class SkuMaster extends Model
         'sku_code', 'erp_entity_code', 'description', 'diameter_mm', 'length_mm', 'unit_weight_tonnes',
         'wire_code', 'wire_kg_per_pipe', 'concrete_volume_m3', 'concrete_mix_code',
         'standard_run_rate_per_hour',
-        'bom_reference', 'is_active', 'machine_preference', 'abc_class',
+        'bom_reference', 'mould_type', 'reo_cage', 'moulds_count', 'pallets_count',
+        'is_active', 'machine_preference', 'abc_class',
         'minimum_run_quantity', 'target_months_on_hand',
     ];
 
@@ -30,6 +31,8 @@ class SkuMaster extends Model
             'concrete_volume_m3' => 'decimal:4',
             'standard_run_rate_per_hour' => 'decimal:3',
             'target_months_on_hand' => 'decimal:2',
+            'moulds_count' => 'integer',
+            'pallets_count' => 'integer',
             'is_active' => 'boolean',
         ];
     }

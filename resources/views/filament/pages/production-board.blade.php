@@ -1,97 +1,235 @@
 <x-filament-panels::page>
+    <style>
+        .prod-plan-table { border-collapse: collapse; width: 100%; min-width: 78rem; font-size: 0.8125rem; }
+        .prod-plan-table th, .prod-plan-table td { border: 1px solid #bcbdbc; padding: 0.4rem 0.55rem; vertical-align: top; }
+        .prod-plan-table thead th { background: #002f67; color: #fff; font-weight: 600; text-align: left; }
+        .prod-plan-table .is-date, .prod-plan-table .is-shift { background: #fff6c7; font-weight: 600; white-space: nowrap; }
+        .prod-plan-table .is-line { background: #fffce8; }
+        .prod-plan-table .is-empty { background: #f4f4f4; color: #747678; }
+        .prod-plan-table .is-drop { outline: 2px dashed #002f67; }
+        .prod-plan-table .is-held { opacity: 0.72; }
+        .prod-plan-table .is-danger { border-left: 4px solid #b3261e; }
+        .prod-plan-table .is-warning { border-left: 4px solid #e0bb00; }
+        .prod-plan-table tbody tr[draggable="true"] { cursor: grab; }
+        html.dark .prod-plan-table .is-date,
+        html.dark .prod-plan-table .is-shift { background: #3d3410; color: #fff; }
+        html.dark .prod-plan-table .is-line { background: #1f2937; }
+        html.dark .prod-plan-table .is-empty { background: #111827; }
+    </style>
+
     <x-filament::section>
         <x-operational-filters
             :plants="$plants"
             :shifts="$shifts"
             :machines="$machines"
-            :columns="6"
-            aria-label="Production board filters"
+            :columns="7"
+            aria-label="Production plan filters"
         >
-            <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
+            <label class="grid min-w-0 gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
                 From
-                <input wire:model.live.debounce.400ms="fromDate" type="date" class="fi-input rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">
+                <input wire:model.live.debounce.400ms="fromDate" type="date" class="fi-input w-full min-w-0 rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">
             </label>
 
-            <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
+            <label class="grid min-w-0 gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
                 To
-                <input wire:model.live.debounce.400ms="toDate" type="date" class="fi-input rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">
+                <input wire:model.live.debounce.400ms="toDate" type="date" class="fi-input w-full min-w-0 rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5">
             </label>
 
-            <label class="grid gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
+            <label class="grid min-w-0 gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
                 Status
-                <select wire:model.live="status" class="fi-select-input rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
+                <select wire:model.live="status" class="fi-select-input w-full min-w-0 rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
                     <option value="">All statuses</option>
                     @foreach ($statuses as $statusOption)
                         <option value="{{ $statusOption }}">{{ str($statusOption)->replace('_', ' ')->title() }}</option>
                     @endforeach
                 </select>
             </label>
+
+            <label class="grid min-w-0 gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
+                Plan run
+                <select wire:model.live="planRunId" class="fi-select-input w-full min-w-0 rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
+                    <option value="">No generated plan</option>
+                    @foreach ($runs as $id => $label)
+                        <option value="{{ $id }}">{{ $label }}</option>
+                    @endforeach
+                </select>
+            </label>
         </x-operational-filters>
     </x-filament::section>
 
-    <x-filament::section>
-        <x-slot name="heading">Schedule timeline</x-slot>
-        <x-slot name="description">Times are shown in each plant’s operating day. This board is intentionally view-only and does not imply drag-and-drop scheduling.</x-slot>
+    @if ($run)
+        <x-filament::section>
+            <x-slot name="heading">What this plan does</x-slot>
+            <x-slot name="description">
+                {{ $run->horizon_from->format('j M Y') }} to {{ $run->horizon_to->format('j M Y') }}.
+                The engine proposes the lines. Drag a product onto another date or shift to change it, then approve a week or month.
+            </x-slot>
 
-        @if ($lanes->isEmpty())
+            @if ($canManage && $run->isDraft())
+                <div class="flex flex-wrap gap-2">
+                    <x-filament::button
+                        wire:click="approveWeek"
+                        wire:confirm="Approve this week? Those lines will be held against regeneration."
+                        icon="heroicon-m-check"
+                    >
+                        Approve this week
+                    </x-filament::button>
+                    <x-filament::button
+                        wire:click="approveMonth"
+                        wire:confirm="Approve this month? Those lines will be held against regeneration."
+                        color="info"
+                        icon="heroicon-m-check-circle"
+                    >
+                        Approve this month
+                    </x-filament::button>
+                    <x-filament::button
+                        wire:click="approve"
+                        wire:confirm="Approve the whole plan? Every line will be held against regeneration."
+                        outlined
+                    >
+                        Approve whole plan
+                    </x-filament::button>
+                    <x-filament::button
+                        wire:click="discard"
+                        wire:confirm="Discard this plan? Its lines will be cancelled."
+                        color="danger"
+                        outlined
+                        icon="heroicon-m-x-circle"
+                    >
+                        Discard
+                    </x-filament::button>
+                </div>
+            @elseif ($run->isApproved())
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                    Approved{{ $run->approvedBy ? ' by '.$run->approvedBy->name : '' }}
+                    on {{ $run->approved_at?->format('j M Y') }}. Generate a new plan to change it.
+                </p>
+            @endif
+        </x-filament::section>
+    @endif
+
+    <x-filament::section>
+        <x-slot name="heading">Schedule</x-slot>
+        <x-slot name="description">
+            Dates stack down the left, with each plant’s shifts under them, the same way the workbook is read.
+            @if ($editable)
+                Drag a product row onto another date or shift.
+            @endif
+            @unless ($run)
+                Run <code>php artisan plan:generate</code> when the engine should propose the next plan.
+            @endunless
+        </x-slot>
+
+        @if ($grid->isEmpty())
             <div class="rounded-lg border border-dashed border-gray-300 px-6 py-12 text-center dark:border-white/15">
                 <p class="font-semibold text-gray-900 dark:text-white">No production schedules found</p>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Adjust the plant, shift, machine, date, or status filters to widen the planning window.</p>
             </div>
         @else
-            <div class="overflow-x-auto" role="region" aria-label="Production Gantt board" tabindex="0">
-                <div class="min-w-[72rem]">
-                    <div class="grid border-b border-gray-200 dark:border-white/10" style="grid-template-columns: 13rem repeat({{ $days->count() }}, minmax(12rem, 1fr));">
-                        <div class="p-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Plant / machine</div>
-                        @foreach ($days as $day)
-                            <div class="border-l border-gray-200 p-3 text-center dark:border-white/10">
-                                <span class="block text-xs font-semibold uppercase tracking-wider text-gray-500">{{ $day->format('D') }}</span>
-                                <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ $day->format('d M') }}</span>
-                            </div>
-                        @endforeach
-                    </div>
-
-                    @foreach ($lanes as $lane)
-                        <div class="grid border-b border-gray-100 last:border-0 dark:border-white/5" style="grid-template-columns: 13rem repeat({{ $days->count() }}, minmax(12rem, 1fr));">
-                            <div class="p-3">
-                                <span class="block text-xs font-semibold text-primary-700 dark:text-primary-300">{{ $lane['depot']->code }}</span>
-                                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ $lane['machine_name'] }}</span>
-                            </div>
-
-                            @foreach ($days as $day)
-                                <div class="relative min-h-28 border-l border-gray-100 bg-gray-50/40 p-2 dark:border-white/5 dark:bg-white/[0.02]">
-                                    @foreach ($lane['schedules']->filter(fn ($item) => $item['model']->schedule_date->isSameDay($day)) as $item)
-                                        @php($schedule = $item['model'])
-                                        <article
-                                            class="absolute top-2 z-10 min-w-28 rounded-md border-l-4 bg-white p-2 shadow-sm ring-1 ring-gray-950/10 dark:bg-gray-900 dark:ring-white/10 {{ $item['conflicts']->isNotEmpty() || $item['is_over_capacity'] ? 'border-danger-500' : ($item['is_low_oee'] ? 'border-warning-500' : 'border-primary-600') }}"
-                                            style="left: {{ number_format($item['left'], 3, '.', '') }}%; width: {{ number_format($item['width'], 3, '.', '') }}%;"
-                                            aria-label="{{ $schedule->sku->sku_code }} from {{ $schedule->planned_start_at->format('H:i') }} to {{ $schedule->planned_end_at->format('H:i') }}"
+            @foreach ($grid as $plant)
+                <div class="mb-6 overflow-x-auto last:mb-0">
+                    <h3 class="mb-2 text-sm font-semibold tracking-wide text-primary-700 uppercase dark:text-primary-300">{{ $plant['depot']->code }} — {{ $plant['depot']->name }}</h3>
+                    <table class="prod-plan-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Shift</th>
+                                <th>Product</th>
+                                <th>Machine</th>
+                                <th>Pipes</th>
+                                <th>OEE</th>
+                                <th>Capacity</th>
+                                <th>Mould type</th>
+                                <th>Reo cage</th>
+                                <th>Moulds #</th>
+                                <th>Pallets #</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($plant['days'] as $day)
+                                @foreach ($day['shifts'] as $shiftIndex => $block)
+                                    @php
+                                        $lineCount = max(1, $block['lines']->count());
+                                        $shift = $block['shift'];
+                                    @endphp
+                                    @for ($i = 0; $i < $lineCount; $i++)
+                                        @php
+                                            $item = $block['lines']->get($i);
+                                            $schedule = $item['model'] ?? null;
+                                            $canDrag = $editable && $schedule !== null && ! $schedule->is_locked;
+                                        @endphp
+                                        <tr
+                                            @class([
+                                                'is-line' => $schedule !== null,
+                                                'is-empty' => $schedule === null,
+                                                'is-held' => $schedule?->is_locked,
+                                                'is-danger' => ($item['conflicts'] ?? collect())->isNotEmpty() || ($item['is_over_capacity'] ?? false),
+                                                'is-warning' => ($item['is_low_oee'] ?? false),
+                                            ])
+                                            @if ($canDrag)
+                                                draggable="true"
+                                                x-on:dragstart="$event.dataTransfer.setData('text/plain', '{{ $schedule->id }}')"
+                                            @endif
+                                            @if ($editable && $shift)
+                                                x-on:dragover.prevent="$event.currentTarget.classList.add('is-drop')"
+                                                x-on:dragleave="$event.currentTarget.classList.remove('is-drop')"
+                                                x-on:drop.prevent="
+                                                    $event.currentTarget.classList.remove('is-drop');
+                                                    const id = Number($event.dataTransfer.getData('text/plain'));
+                                                    if (id) $wire.moveLine(id, '{{ $day['date']->toDateString() }}', {{ $shift->id }})
+                                                "
+                                            @endif
                                         >
-                                            <div class="truncate text-xs font-bold text-primary-700 dark:text-primary-300">{{ $schedule->sku->sku_code }}</div>
-                                            <div class="whitespace-nowrap text-[0.7rem] text-gray-600 dark:text-gray-300">
-                                                {{ $schedule->planned_start_at->format('H:i') }}–{{ $schedule->planned_end_at->format('H:i') }}
-                                            </div>
-                                            <div class="mt-1 flex flex-wrap gap-1 text-[0.65rem]">
-                                                <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-white/10">{{ number_format($schedule->planned_quantity) }} pipes</span>
-                                                <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-white/10">OEE {{ number_format((float) $schedule->planned_oee_percent, 0) }}%</span>
-                                                <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-white/10">Cap {{ number_format($item['capacity']) }}</span>
-                                            </div>
-                                            @if ($item['is_over_capacity'])
-                                                <p class="mt-1 text-[0.65rem] font-semibold text-danger-700">Over shift capacity</p>
+                                            @if ($shiftIndex === 0 && $i === 0)
+                                                <td class="is-date" rowspan="{{ $day['rowspan'] }}">
+                                                    <div>{{ $day['date']->format('D') }}</div>
+                                                    <div>{{ $day['date']->format('j M Y') }}</div>
+                                                </td>
                                             @endif
-                                            @if ($item['conflicts']->isNotEmpty())
-                                                <p class="mt-1 text-[0.65rem] font-semibold text-danger-700" title="{{ $item['conflicts']->pluck('reason')->join(' ') }}">
-                                                    {{ $item['conflicts']->count() }} mould constraint(s)
-                                                </p>
+                                            @if ($i === 0)
+                                                <td class="is-shift" rowspan="{{ $lineCount }}">
+                                                    {{ $shift?->name ?? 'Unassigned' }}
+                                                </td>
                                             @endif
-                                        </article>
-                                    @endforeach
-                                </div>
+                                            @if ($schedule)
+                                                <td>
+                                                    <span class="font-semibold text-primary-700 dark:text-primary-300">{{ $schedule->sku?->sku_code }}</span>
+                                                    @if ($schedule->is_locked)
+                                                        <span class="ml-1 text-[0.65rem] uppercase">Held</span>
+                                                    @endif
+                                                </td>
+                                                <td>{{ $schedule->machine?->name ?? $schedule->machine?->code }}</td>
+                                                <td>
+                                                    @if ($editable && ! $schedule->is_locked)
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="1"
+                                                            value="{{ $schedule->planned_quantity }}"
+                                                            wire:change="updateQuantity({{ $schedule->id }}, $event.target.value)"
+                                                            class="fi-input w-20 rounded border-gray-300 text-right dark:border-white/10 dark:bg-white/5"
+                                                        >
+                                                    @else
+                                                        {{ number_format($schedule->planned_quantity) }}
+                                                    @endif
+                                                </td>
+                                                <td>{{ number_format((float) $schedule->planned_oee_percent, 0) }}%</td>
+                                                <td>{{ number_format($item['capacity']) }}</td>
+                                                <td>{{ $schedule->sku?->mould_type }}</td>
+                                                <td>{{ $schedule->sku?->reo_cage === null ? '' : ucfirst($schedule->sku->reo_cage) }}</td>
+                                                <td>{{ $schedule->sku?->moulds_count }}</td>
+                                                <td>{{ $schedule->sku?->pallets_count }}</td>
+                                            @else
+                                                <td colspan="9">Drop a product here</td>
+                                            @endif
+                                        </tr>
+                                    @endfor
+                                @endforeach
                             @endforeach
-                        </div>
-                    @endforeach
+                        </tbody>
+                    </table>
                 </div>
-            </div>
+            @endforeach
         @endif
     </x-filament::section>
 

@@ -64,6 +64,11 @@ class PlanReview extends Page implements Tables\Contracts\HasTable
      * The factory needs to read the plan it is working to, so viewing is open to depot roles. Only
      * changing it is a planner's.
      */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function canAccess(): bool
     {
         return static::canViewOperationalPage();

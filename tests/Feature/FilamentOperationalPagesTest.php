@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\AppRole;
+use App\Filament\Pages\DemandVsProdPlan;
 use App\Filament\Pages\LogisticsLoadBuilder;
 use App\Filament\Pages\ProductionBoard;
 use App\Filament\Pages\SteelRequisitionDashboard;
@@ -43,6 +44,7 @@ class FilamentOperationalPagesTest extends TestCase
     {
         return [
             'production board' => [ProductionBoard::class],
+            'demand vs prod plan' => [DemandVsProdPlan::class],
             'steel requisitions' => [SteelRequisitionDashboard::class],
             'load builder' => [LogisticsLoadBuilder::class],
         ];
@@ -72,6 +74,11 @@ class FilamentOperationalPagesTest extends TestCase
             ->assertOk()
             ->assertSee('ERP production demand')
             ->assertSee('ERP SKU master')
+            ->assertDontSee('RCPA_SQL_PASSWORD');
+        $this->get(DemandVsProdPlan::getUrl())
+            ->assertOk()
+            ->assertSee('Demand vs Prod Plan')
+            ->assertSee('Variance is plan minus demand')
             ->assertDontSee('RCPA_SQL_PASSWORD');
         $this->get(SteelRequisitionDashboard::getUrl())
             ->assertOk()

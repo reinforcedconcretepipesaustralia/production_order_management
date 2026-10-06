@@ -5,6 +5,7 @@ namespace App\Support\Authorization;
 use App\Enums\AppRole;
 use App\Enums\Capability;
 use App\Filament\Pages\DeliveryReminders;
+use App\Filament\Pages\DemandVsProdPlan;
 use App\Filament\Pages\ErpViews;
 use App\Filament\Pages\LogisticsLoadBuilder;
 use App\Filament\Pages\PlanReview;
@@ -17,6 +18,7 @@ use App\Filament\Resources\MachineAssets\MachineAssetResource;
 use App\Filament\Resources\NonProductionDays\NonProductionDayResource;
 use App\Filament\Resources\OeeSettings\OeeSettingResource;
 use App\Filament\Resources\Shifts\ShiftResource;
+use App\Filament\Resources\SkuMasters\SkuMasterResource;
 use App\Models\User;
 use BezhanSalleh\FilamentShield\Facades\FilamentShield;
 use BezhanSalleh\FilamentShield\Support\Utils;
@@ -40,6 +42,10 @@ class ShieldRoleCatalog
      */
     private const RESOURCES = [
         DepotResource::class => [
+            'view' => [Capability::ViewMasterData],
+            'manage' => Capability::ManageMasterData,
+        ],
+        SkuMasterResource::class => [
             'view' => [Capability::ViewMasterData],
             'manage' => Capability::ManageMasterData,
         ],
@@ -81,6 +87,10 @@ class ShieldRoleCatalog
         ],
         PlanReview::class => [
             'capabilities' => [Capability::ViewSchedules, Capability::ManageSchedules, Capability::ViewDepotOperations],
+            'national' => true,
+        ],
+        DemandVsProdPlan::class => [
+            'capabilities' => [Capability::ViewSchedules, Capability::ViewDepotOperations],
             'national' => true,
         ],
         ProductionActuals::class => [

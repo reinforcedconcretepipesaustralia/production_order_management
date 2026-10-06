@@ -158,6 +158,10 @@ final class WorkbookBomImporter
             'unit_weight_tonnes' => $this->numeric($cells, $layout->column('unit_weight')) ?? 0,
             'concrete_volume_m3' => $this->numeric($cells, $layout->column('concrete_volume')) ?? 0,
             'machine_preference' => trim($cells[$layout->column('machine')] ?? '') ?: null,
+            'mould_type' => trim($cells[$layout->column('mould_type')] ?? '') ?: null,
+            'reo_cage' => $this->reoCage($cells, $layout),
+            'moulds_count' => $this->wholeNumber($cells, $layout->column('mould_count')),
+            'pallets_count' => $this->wholeNumber($cells, $layout->column('pallet_count')),
             'bom_reference' => trim($cells[$layout->column('mould_type')] ?? '') ?: null,
             'is_active' => true,
         ];
@@ -355,6 +359,31 @@ final class WorkbookBomImporter
         ]);
 
         return $parts === [] ? $skuCode : ucfirst(implode(' ', $parts));
+    }
+
+    /**
+     * @param  array<string, string>  $cells
+     */
+    private function reoCage(array $cells, BomLayout $layout): ?string
+    {
+        $value = strtolower(trim($cells[$layout->column('cage')] ?? ''));
+
+        return match (true) {
+            $value === '' => null,
+            in_array($value, ['single', 's', '1'], true) => 'single',
+            in_array($value, ['double', 'd', '2'], true) => 'double',
+            default => $value,
+        };
+    }
+
+    /**
+     * @param  array<string, string>  $cells
+     */
+    private function wholeNumber(array $cells, ?string $column): ?int
+    {
+        $value = $this->numeric($cells, $column);
+
+        return $value === null ? null : (int) round($value);
     }
 
     /**

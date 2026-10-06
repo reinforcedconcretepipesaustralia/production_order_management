@@ -28,6 +28,10 @@ class SkuMasterFactory extends Factory
             'concrete_volume_m3' => fake()->randomFloat(4, 0.1, 2),
             'standard_run_rate_per_hour' => fake()->randomFloat(3, 2, 20),
             'bom_reference' => fake()->bothify('BOM-####'),
+            'mould_type' => null,
+            'reo_cage' => null,
+            'moulds_count' => null,
+            'pallets_count' => null,
             'is_active' => true,
         ];
     }

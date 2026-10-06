@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\AppRole;
 use App\Enums\Capability;
 use App\Filament\Pages\DeliveryReminders;
+use App\Filament\Pages\DemandVsProdPlan;
 use App\Filament\Pages\ProductionActuals;
 use App\Filament\Pages\ProductionBoard;
 use App\Filament\Resources\Users\UserResource;
@@ -53,15 +54,22 @@ class FilamentShieldSetupTest extends TestCase
         $this->assertTrue($planner->can(Capability::ManageSchedules->shieldPermission()));
         $this->assertTrue($planner->can('ViewAny:Depot'));
         $this->assertTrue($planner->can('Create:Depot'));
+        $this->assertTrue($planner->can('ViewAny:SkuMaster'));
+        $this->assertTrue($planner->can('Create:SkuMaster'));
         $this->assertTrue($planner->can('View:ErpViews'));
 
         $this->assertTrue($executive->hasRole(AppRole::ViewerExecutive->value));
         $this->assertTrue($executive->can('ViewAny:Depot'));
         $this->assertFalse($executive->can('Create:Depot'));
+        $this->assertTrue($executive->can('ViewAny:SkuMaster'));
+        $this->assertFalse($executive->can('Create:SkuMaster'));
         $this->assertFalse($executive->hasCapability(Capability::ViewMasterData));
         $this->assertFalse($executive->can('View:ErpViews'));
         $this->assertTrue($executive->can(
             app(ShieldRoleCatalog::class)->pagePermissionKey(ProductionBoard::class),
+        ));
+        $this->assertTrue($executive->can(
+            app(ShieldRoleCatalog::class)->pagePermissionKey(DemandVsProdPlan::class),
         ));
         $this->assertTrue($executive->can(
             app(ShieldRoleCatalog::class)->pagePermissionKey(DeliveryReminders::class),

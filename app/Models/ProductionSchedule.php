@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ProductionSchedule extends Model
 {
@@ -101,6 +102,14 @@ class ProductionSchedule extends Model
     public function actuals(): HasMany
     {
         return $this->hasMany(ProductionActual::class);
+    }
+
+    /**
+     * The floor's current count for this batch. Quality may later release this same row.
+     */
+    public function latestActual(): HasOne
+    {
+        return $this->hasOne(ProductionActual::class)->latestOfMany();
     }
 
     public function orderAllocations(): HasMany
