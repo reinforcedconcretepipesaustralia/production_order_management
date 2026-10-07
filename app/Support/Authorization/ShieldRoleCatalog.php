@@ -17,6 +17,7 @@ use App\Filament\Resources\DowntimeEvents\DowntimeEventResource;
 use App\Filament\Resources\MachineAssets\MachineAssetResource;
 use App\Filament\Resources\NonProductionDays\NonProductionDayResource;
 use App\Filament\Resources\OeeSettings\OeeSettingResource;
+use App\Filament\Resources\SchedulingRules\SchedulingRuleResource;
 use App\Filament\Resources\Shifts\ShiftResource;
 use App\Filament\Resources\SkuMasters\SkuMasterResource;
 use App\Models\User;
@@ -47,6 +48,10 @@ class ShieldRoleCatalog
         ],
         SkuMasterResource::class => [
             'view' => [Capability::ViewMasterData],
+            'manage' => Capability::ManageMasterData,
+        ],
+        SchedulingRuleResource::class => [
+            'view' => [Capability::ViewMasterData, Capability::ViewSchedules],
             'manage' => Capability::ManageMasterData,
         ],
         ShiftResource::class => [

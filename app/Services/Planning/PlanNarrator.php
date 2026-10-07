@@ -23,7 +23,10 @@ use Illuminate\Support\Facades\Log;
  */
 final class PlanNarrator
 {
-    public function __construct(private OrderSync $orderBook) {}
+    public function __construct(
+        private OrderSync $orderBook,
+        private SchedulingRuleResolver $rules,
+    ) {}
 
     private const SYSTEM = <<<'PROMPT'
         You explain production plans to the planners and plant managers of an Australian manufacturer
@@ -36,6 +39,8 @@ final class PlanNarrator
 
         Rules:
         - Use only the figures given. Never estimate, extrapolate or invent a number.
+        - The brief includes scheduling_rules set by the production schedulers. Treat those as
+          constraints the plan was built to follow. Do not suggest breaking them.
         - Never recommend a quantity to make. That is the planner's call on the plan's own lines.
         - Australian English. Tonnes, not tons. No headings, no bullet lists, no bold.
         - Three short paragraphs at most, and fewer if there is less to say.
@@ -83,6 +88,7 @@ final class PlanNarrator
                 'demand_as_at' => $run->as_of_date->toDateString(),
             ],
             'parameters' => $run->parameters ?? [],
+            'scheduling_rules' => $this->rules->activeBrief(),
             'totals' => [
                 'lines' => $metrics['lines'] ?? 0,
                 'pipes' => $metrics['planned_eaches'] ?? 0,

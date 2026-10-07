@@ -10,6 +10,7 @@ use App\Filament\Resources\MachineAssets\MachineAssetResource;
 use App\Filament\Resources\MachineAssets\Pages\CreateMachineAsset;
 use App\Filament\Resources\NonProductionDays\NonProductionDayResource;
 use App\Filament\Resources\OeeSettings\OeeSettingResource;
+use App\Filament\Resources\SchedulingRules\SchedulingRuleResource;
 use App\Filament\Resources\Shifts\Pages\CreateShift;
 use App\Filament\Resources\Shifts\Pages\EditShift;
 use App\Filament\Resources\Shifts\ShiftResource;
@@ -20,6 +21,7 @@ use App\Models\DowntimeEvent;
 use App\Models\MachineAsset;
 use App\Models\NonProductionDay;
 use App\Models\OeeSetting;
+use App\Models\SchedulingRule;
 use App\Models\Shift;
 use App\Models\SkuMaster;
 use App\Models\User;
@@ -47,6 +49,7 @@ class PlantConfigurationResourcesTest extends TestCase
             'shifts' => [ShiftResource::class],
             'machines' => [MachineAssetResource::class],
             'products' => [SkuMasterResource::class],
+            'scheduling rules' => [SchedulingRuleResource::class],
             'oee settings' => [OeeSettingResource::class],
             'shutdowns' => [NonProductionDayResource::class],
             'downtime' => [DowntimeEventResource::class],
@@ -278,6 +281,7 @@ class PlantConfigurationResourcesTest extends TestCase
             ShiftResource::class => Shift::factory()->for($depot)->create(),
             MachineAssetResource::class => MachineAsset::factory()->for($depot)->create(),
             SkuMasterResource::class => SkuMaster::factory()->create(),
+            SchedulingRuleResource::class => SchedulingRule::factory()->create(),
             OeeSettingResource::class => OeeSetting::factory()->create(['depot_id' => $depot->id]),
             NonProductionDayResource::class => NonProductionDay::factory()->for($depot)->create(),
             DowntimeEventResource::class => DowntimeEvent::factory()->for($depot)->create(),

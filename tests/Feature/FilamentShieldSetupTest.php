@@ -56,6 +56,8 @@ class FilamentShieldSetupTest extends TestCase
         $this->assertTrue($planner->can('Create:Depot'));
         $this->assertTrue($planner->can('ViewAny:SkuMaster'));
         $this->assertTrue($planner->can('Create:SkuMaster'));
+        $this->assertTrue($planner->can('ViewAny:SchedulingRule'));
+        $this->assertTrue($planner->can('Create:SchedulingRule'));
         $this->assertTrue($planner->can('View:ErpViews'));
 
         $this->assertTrue($executive->hasRole(AppRole::ViewerExecutive->value));
@@ -63,6 +65,8 @@ class FilamentShieldSetupTest extends TestCase
         $this->assertFalse($executive->can('Create:Depot'));
         $this->assertTrue($executive->can('ViewAny:SkuMaster'));
         $this->assertFalse($executive->can('Create:SkuMaster'));
+        $this->assertTrue($executive->can('ViewAny:SchedulingRule'));
+        $this->assertFalse($executive->can('Create:SchedulingRule'));
         $this->assertFalse($executive->hasCapability(Capability::ViewMasterData));
         $this->assertFalse($executive->can('View:ErpViews'));
         $this->assertTrue($executive->can(

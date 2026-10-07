@@ -74,6 +74,16 @@ class PlanNarratorTest extends TestCase
      * A plant at every shift it has while another sits idle is the most decision-worthy fact in a
      * plan, so utilisation is computed rather than left for Claude to divide.
      */
+    public function test_the_brief_includes_the_schedulers_active_rules(): void
+    {
+        $brief = app(PlanNarrator::class)->briefFor($this->run);
+
+        $this->assertContains(
+            'max_runs_per_shift',
+            collect($brief['scheduling_rules'])->pluck('code')->all(),
+        );
+    }
+
     public function test_the_brief_spells_out_capacity_utilisation_per_plant(): void
     {
         $brief = app(PlanNarrator::class)->briefFor($this->run);

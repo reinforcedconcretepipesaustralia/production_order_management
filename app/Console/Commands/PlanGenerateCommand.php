@@ -7,6 +7,7 @@ use App\Models\PlanRun;
 use App\Services\Planning\PlanGenerator;
 use App\Services\Planning\PlanNarrator;
 use App\Services\Planning\PlanRequest;
+use App\Services\Planning\SchedulingRuleResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
@@ -18,15 +19,15 @@ class PlanGenerateCommand extends Command
         {--to= : Last day of the plan (Y-m-d). Defaults to six months out.}
         {--depot=* : Plant codes to plan. Repeatable. Omit for every planning-enabled plant.}
         {--as-of= : Date to take the demand snapshot on. Defaults to the start of the horizon.}
-        {--months-cover=1.0 : Months of stock held for a fast mover with no target of its own.}
-        {--minimum-run=0.25 : Smallest share of a shift worth starting a new product for.}
-        {--max-runs=2 : Products a machine may be set up for in one shift.}
+        {--months-cover= : Months of stock held for a fast mover with no target of its own. Defaults to the scheduling rules list.}
+        {--minimum-run= : Smallest share of a shift worth starting a new product for. Defaults to the scheduling rules list.}
+        {--max-runs= : Products a machine may be set up for in one shift. Defaults to the scheduling rules list.}
         {--orders-only : Plan order-backed work only, with no safety stock.}
         {--narrate : Also write a plain-English explanation of the plan.}';
 
     protected $description = 'Generate a production plan across the plants';
 
-    public function handle(PlanGenerator $generator): int
+    public function handle(PlanGenerator $generator, SchedulingRuleResolver $rules): int
     {
         $from = CarbonImmutable::parse($this->option('from') ?: now()->addDay()->toDateString());
         $to = CarbonImmutable::parse($this->option('to') ?: $from->addMonths(6)->toDateString());
@@ -43,15 +44,23 @@ class PlanGenerateCommand extends Command
             $to->format('j M Y'),
         ));
 
+        $defaults = $rules->planDefaults();
+
         $run = $generator->generate(new PlanRequest(
             from: $from,
             to: $to,
             depotIds: $depotIds,
             asOf: $this->option('as-of') === null ? null : CarbonImmutable::parse($this->option('as-of')),
-            targetMonthsOnHand: (float) $this->option('months-cover'),
-            minimumRunFraction: (float) $this->option('minimum-run'),
-            maxRunsPerShift: (int) $this->option('max-runs'),
-            includeReplenishment: ! $this->option('orders-only'),
+            targetMonthsOnHand: $this->option('months-cover') === null
+                ? $defaults['target_months_on_hand']
+                : (float) $this->option('months-cover'),
+            minimumRunFraction: $this->option('minimum-run') === null
+                ? $defaults['minimum_run_fraction']
+                : (float) $this->option('minimum-run'),
+            maxRunsPerShift: $this->option('max-runs') === null
+                ? $defaults['max_runs_per_shift']
+                : (int) $this->option('max-runs'),
+            includeReplenishment: $this->option('orders-only') ? false : $defaults['include_replenishment'],
             generatedBy: null,
         ));
 
