@@ -7,9 +7,12 @@ use App\Models\InventorySoh;
 use App\Models\ProductionSchedule;
 use App\Models\SalesOrder;
 use App\Models\SkuMaster;
+use App\Services\Sync\OrderSync;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * The Demand vs Prod Plan sheet: outstanding orders against the production plan,
@@ -18,6 +21,8 @@ use Illuminate\Support\Collection;
 final class DemandVsProdPlanWorkbook
 {
     public const MONTHS = 6;
+
+    public function __construct(private OrderSync $orderBook) {}
 
     /**
      * @param  Collection<int, Depot>  $depots
@@ -141,6 +146,22 @@ final class DemandVsProdPlanWorkbook
     }
 
     /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function liveOrderLines(): Collection
+    {
+        try {
+            return $this->orderBook->lines();
+        } catch (Throwable $exception) {
+            Log::warning('Could not read the live order book for Demand vs Prod Plan.', [
+                'error' => $exception->getMessage(),
+            ]);
+
+            return collect();
+        }
+    }
+
+    /**
      * @param  list<int>  $depotIds
      * @param  list<string>  $monthKeys
      * @return Collection<int, array<string, int>>
@@ -151,12 +172,11 @@ final class DemandVsProdPlanWorkbook
         $currentMonth = $asOf->toDateString();
         $horizonEnd = $asOf->addMonths(self::MONTHS)->subDay();
 
-        return SalesOrder::query()
-            ->whereIn('depot_id', $depotIds)
-            ->whereIn('status', ['open', 'partially_allocated'])
-            ->whereColumn('allocated_quantity', '<', 'ordered_quantity')
-            ->orderBy('id')
-            ->get()
+        return $this->liveOrderLines()
+            ->filter(fn (array $line): bool => in_array($line['depot_id'], $depotIds, true)
+                && in_array($line['status'], ['open', 'partially_allocated'], true)
+                && $line['allocated_quantity'] < $line['ordered_quantity'])
+            ->map(fn (array $line): SalesOrder => SalesOrder::make($line))
             ->groupBy('sku_master_id')
             ->map(function (Collection $orders) use ($asOf, $currentMonth, $horizonEnd, $emptyByMonth): array {
                 $demand = $emptyByMonth;

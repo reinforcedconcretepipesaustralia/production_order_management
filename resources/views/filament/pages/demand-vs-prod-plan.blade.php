@@ -24,7 +24,7 @@
             :plants="$plants"
             :shifts="$shifts"
             :machines="$machines"
-            :columns="4"
+            :columns="5"
             aria-label="Demand vs production plan filters"
         >
             <label class="grid min-w-0 gap-1 text-sm font-medium text-gray-700 dark:text-gray-200">
@@ -35,6 +35,15 @@
                     placeholder="Search product"
                     class="fi-input w-full min-w-0 rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5"
                 >
+            </label>
+            <label class="flex min-w-0 items-center gap-2 pb-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+                <input
+                    wire:model.live="hideBlankPlan"
+                    type="checkbox"
+                    @checked($hideBlankPlan)
+                    class="rounded border-gray-300 text-[#002F67] focus:ring-[#002F67] dark:border-white/20 dark:bg-white/5"
+                >
+                Hide blank plan
             </label>
         </x-operational-filters>
     </x-filament::section>

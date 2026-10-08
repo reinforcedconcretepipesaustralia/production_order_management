@@ -6,6 +6,7 @@ use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\Depot;
 use App\Models\ProductionSchedule;
 use App\Services\Planning\DemandVsProdPlanWorkbook;
+use Carbon\CarbonImmutable;
 use Filament\Pages\Page;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -27,6 +28,8 @@ class DemandVsProdPlan extends Page
     protected string $view = 'filament.pages.demand-vs-prod-plan';
 
     public string $productSearch = '';
+
+    public bool $hideBlankPlan = true;
 
     public static function canAccess(): bool
     {
@@ -65,10 +68,48 @@ class DemandVsProdPlan extends Page
             ));
         }
 
+        if ($this->hideBlankPlan) {
+            $table['rows'] = array_values(array_filter(
+                $table['rows'],
+                fn (array $row): bool => array_sum($row['plan']) !== 0,
+            ));
+        }
+
+        $table['totals'] = $this->totalsFromRows($table['rows'], $table['months']);
+
         return [
             ...$this->operationalFilterOptions(),
             'table' => $table,
         ];
+    }
+
+    /**
+     * @param  list<array{soh: int, demand: array<string, int>, plan: array<string, int>, variance: array<string, int>}>  $rows
+     * @param  list<CarbonImmutable>  $months
+     * @return array{soh: int, demand: array<string, int>, plan: array<string, int>, variance: array<string, int>}
+     */
+    private function totalsFromRows(array $rows, array $months): array
+    {
+        $keys = array_map(fn ($month): string => $month->toDateString(), $months);
+        $empty = array_fill_keys($keys, 0);
+        $totals = [
+            'soh' => 0,
+            'demand' => $empty,
+            'plan' => $empty,
+            'variance' => $empty,
+        ];
+
+        foreach ($rows as $row) {
+            $totals['soh'] += $row['soh'];
+
+            foreach ($keys as $key) {
+                $totals['demand'][$key] += $row['demand'][$key];
+                $totals['plan'][$key] += $row['plan'][$key];
+                $totals['variance'][$key] += $row['variance'][$key];
+            }
+        }
+
+        return $totals;
     }
 
     /**

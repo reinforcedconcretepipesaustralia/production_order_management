@@ -5,23 +5,31 @@ namespace Tests\Feature\Services\Planning;
 use App\Models\Depot;
 use App\Models\InventorySoh;
 use App\Models\ProductionSchedule;
-use App\Models\SalesOrder;
 use App\Models\SkuMaster;
 use App\Services\Planning\DemandVsProdPlanWorkbook;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Tests\Fixtures\SeedsLiveOrderBook;
 use Tests\TestCase;
 
 class DemandVsProdPlanWorkbookTest extends TestCase
 {
     use LazilyRefreshDatabase;
+    use SeedsLiveOrderBook;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->installLiveOrderBook();
+    }
 
     public function test_compares_outstanding_demand_to_the_production_plan_by_month(): void
     {
         $this->travelTo('2026-10-01 09:00:00');
 
-        $depot = Depot::factory()->create(['code' => 'MEL']);
-        $otherDepot = Depot::factory()->create(['code' => 'SYD']);
+        $depot = $this->plant('MEL', 'RCPVIC', '31');
+        $otherDepot = $this->plant('SYD', 'RCPNSW', 'MAIN');
         $sku = SkuMaster::factory()->create(['sku_code' => 'R0675-4']);
         $hidden = SkuMaster::factory()->create(['sku_code' => 'HIDDEN-SKU']);
 
@@ -32,22 +40,9 @@ class DemandVsProdPlanWorkbookTest extends TestCase
             'prime_quantity' => 99,
         ]);
 
-        SalesOrder::factory()->for($depot)->for($sku, 'sku')->create([
-            'ordered_quantity' => 40,
-            'allocated_quantity' => 19,
-            'requested_delivery_date' => '2026-10-15',
-            'status' => 'open',
-        ]);
-        SalesOrder::factory()->for($depot)->for($sku, 'sku')->create([
-            'ordered_quantity' => 35,
-            'allocated_quantity' => 0,
-            'requested_delivery_date' => '2026-11-02',
-            'status' => 'open',
-        ]);
-        SalesOrder::factory()->for($otherDepot)->for($hidden, 'sku')->create([
-            'ordered_quantity' => 50,
-            'requested_delivery_date' => '2026-10-15',
-        ]);
+        $this->liveOrder($depot, $sku, 40, '2026-10-15', allocated: 19, location: '31');
+        $this->liveOrder($depot, $sku, 35, '2026-11-02', location: '31');
+        $this->liveOrder($otherDepot, $hidden, 50, '2026-10-15', location: 'MAIN');
 
         $this->schedule($depot, $sku, '2026-10-08', 58);
         $this->schedule($depot, $sku, '2026-11-09', 30);
@@ -81,15 +76,10 @@ class DemandVsProdPlanWorkbookTest extends TestCase
     {
         $this->travelTo('2026-10-01 09:00:00');
 
-        $depot = Depot::factory()->create();
+        $depot = $this->plant('MEL', 'RCPVIC', '31');
         $sku = SkuMaster::factory()->create(['sku_code' => 'R0600-4']);
 
-        SalesOrder::factory()->for($depot)->for($sku, 'sku')->create([
-            'ordered_quantity' => 13,
-            'allocated_quantity' => 0,
-            'requested_delivery_date' => '2026-08-20',
-            'status' => 'open',
-        ]);
+        $this->liveOrder($depot, $sku, 13, '2026-08-20', location: '31');
         $this->schedule($depot, $sku, '2026-10-06', 13);
 
         $table = app(DemandVsProdPlanWorkbook::class)->table(
@@ -128,6 +118,15 @@ class DemandVsProdPlanWorkbookTest extends TestCase
             'planned_end_at' => $day->addHours(14),
             'planned_quantity' => $quantity,
             'status' => $status,
+        ]);
+    }
+
+    private function plant(string $code, string $entity, string $location): Depot
+    {
+        return Depot::factory()->create([
+            'code' => $code,
+            'erp_entity_code' => $entity,
+            'prime_stock_locations' => [$location],
         ]);
     }
 }
