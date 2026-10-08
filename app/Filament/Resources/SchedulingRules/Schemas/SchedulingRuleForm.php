@@ -34,7 +34,8 @@ class SchedulingRuleForm
                     ->required(),
                 TextInput::make('value')
                     ->numeric()
-                    ->helperText('Used when the code is one the engine understands. Leave blank for a written rule.'),
+                    ->minValue(0)
+                    ->helperText('Used when the code is one the engine understands. Leave blank for a written rule. Max products per shift must be at least 1; a minimum run must be between 0 and 1.'),
                 TextInput::make('sort_order')
                     ->numeric()
                     ->minValue(0)

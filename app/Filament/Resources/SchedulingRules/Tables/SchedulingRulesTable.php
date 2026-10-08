@@ -2,7 +2,9 @@
 
 namespace App\Filament\Resources\SchedulingRules\Tables;
 
+use App\Filament\Resources\SchedulingRules\SchedulingRuleResource;
 use App\Filament\Resources\SchedulingRules\Schemas\SchedulingRuleForm;
+use App\Models\SchedulingRule;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -18,6 +20,7 @@ class SchedulingRulesTable
     {
         return $table
             ->defaultSort('sort_order')
+            ->recordUrl(fn (SchedulingRule $record): string => SchedulingRuleResource::getUrl('edit', ['record' => $record]))
             ->columns([
                 TextColumn::make('name')
                     ->searchable()

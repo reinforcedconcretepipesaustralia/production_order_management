@@ -38,6 +38,19 @@ class SchedulingRuleResolverTest extends TestCase
         $this->assertSame(2, $defaults['max_runs_per_shift']);
     }
 
+    public function test_invalid_engine_values_fall_back_so_generate_does_not_crash(): void
+    {
+        SchedulingRule::query()->where('code', SchedulingRule::CODE_MAX_RUNS_PER_SHIFT)->update(['value' => 0]);
+        SchedulingRule::query()->where('code', SchedulingRule::CODE_MINIMUM_RUN_FRACTION)->update(['value' => 2]);
+        SchedulingRule::query()->where('code', SchedulingRule::CODE_TARGET_MONTHS_ON_HAND)->update(['value' => -1]);
+
+        $defaults = app(SchedulingRuleResolver::class)->planDefaults();
+
+        $this->assertSame(2, $defaults['max_runs_per_shift']);
+        $this->assertSame(0.25, $defaults['minimum_run_fraction']);
+        $this->assertSame(1.0, $defaults['target_months_on_hand']);
+    }
+
     public function test_the_brief_lists_only_rules_the_schedulers_left_on(): void
     {
         SchedulingRule::query()->where('code', 'stay_on_product')->update(['is_active' => false]);

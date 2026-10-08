@@ -26,9 +26,19 @@ final class SchedulingRuleResolver
             'target_months_on_hand' => $this->number(
                 SchedulingRule::CODE_TARGET_MONTHS_ON_HAND,
                 DemandModel::DEFAULT_TARGET_MONTHS_ON_HAND,
+                min: 0,
             ),
-            'minimum_run_fraction' => $this->number(SchedulingRule::CODE_MINIMUM_RUN_FRACTION, 0.25),
-            'max_runs_per_shift' => (int) $this->number(SchedulingRule::CODE_MAX_RUNS_PER_SHIFT, 2),
+            'minimum_run_fraction' => $this->number(
+                SchedulingRule::CODE_MINIMUM_RUN_FRACTION,
+                0.25,
+                min: 0.0001,
+                max: 1,
+            ),
+            'max_runs_per_shift' => (int) $this->number(
+                SchedulingRule::CODE_MAX_RUNS_PER_SHIFT,
+                2,
+                min: 1,
+            ),
             'include_replenishment' => $this->number(SchedulingRule::CODE_INCLUDE_REPLENISHMENT, 1) > 0,
         ];
     }
@@ -51,13 +61,23 @@ final class SchedulingRuleResolver
             ->all();
     }
 
-    private function number(string $code, float $fallback): float
+    private function number(string $code, float $fallback, ?float $min = null, ?float $max = null): float
     {
         $value = SchedulingRule::query()
             ->active()
             ->where('code', $code)
             ->value('value');
 
-        return $value === null ? $fallback : (float) $value;
+        if ($value === null) {
+            return $fallback;
+        }
+
+        $number = (float) $value;
+
+        if (($min !== null && $number < $min) || ($max !== null && $number > $max)) {
+            return $fallback;
+        }
+
+        return $number;
     }
 }
