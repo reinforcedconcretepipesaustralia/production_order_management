@@ -15,11 +15,13 @@ use Carbon\CarbonImmutable;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Livewire\Livewire;
+use Tests\Fixtures\SeedsLiveOrderBook;
 use Tests\TestCase;
 
 class ProductionBoardPageTest extends TestCase
 {
     use LazilyRefreshDatabase;
+    use SeedsLiveOrderBook;
 
     protected function setUp(): void
     {
@@ -93,6 +95,101 @@ class ProductionBoardPageTest extends TestCase
         $this->assertSame('2026-09-21', $line->fresh()->schedule_date->toDateString());
         $this->assertSame($day->id, $line->fresh()->shift_id);
         $this->assertSame(0, PlanChangeLogEntry::query()->count());
+    }
+
+    public function test_defaults_the_plant_filter_to_yatala_when_planning_is_enabled(): void
+    {
+        $yatala = Depot::factory()->create([
+            'code' => 'YAT',
+            'name' => 'Yatala',
+            'is_planning_enabled' => true,
+        ]);
+        Depot::factory()->create([
+            'code' => 'MEL',
+            'name' => 'Melton',
+            'is_planning_enabled' => true,
+        ]);
+
+        Livewire::actingAs($this->planner())
+            ->test(ProductionBoard::class)
+            ->assertSet('depotId', $yatala->id)
+            ->assertSee('Generate Yatala plan');
+    }
+
+    public function test_does_not_default_the_plant_filter_when_yatala_is_not_planning_enabled(): void
+    {
+        Depot::factory()->create(['code' => 'YAT', 'name' => 'Yatala']);
+
+        Livewire::actingAs($this->planner())
+            ->test(ProductionBoard::class)
+            ->assertSet('depotId', null);
+    }
+
+    public function test_a_planner_generates_a_plan_for_yatala_only(): void
+    {
+        $this->installLiveOrderBook();
+
+        $yatala = Depot::factory()->create([
+            'code' => 'YAT',
+            'name' => 'Yatala',
+            'erp_entity_code' => 'RCPQLD',
+            'prime_stock_locations' => ['40'],
+            'is_planning_enabled' => true,
+        ]);
+        Depot::factory()->create([
+            'code' => 'MEL',
+            'name' => 'Melton',
+            'erp_entity_code' => 'RCPVIC',
+            'is_planning_enabled' => true,
+        ]);
+
+        $planner = $this->planner();
+
+        $component = Livewire::actingAs($planner)
+            ->test(ProductionBoard::class)
+            ->call('generatePlan')
+            ->assertHasNoErrors()
+            ->assertNotified();
+
+        $run = PlanRun::query()->sole();
+
+        $this->assertSame([$yatala->id], $run->depot_ids);
+        $this->assertSame($planner->id, $run->generated_by);
+        $this->assertSame('2026-09-22', $run->horizon_from->toDateString());
+        $this->assertSame('2027-03-22', $run->horizon_to->toDateString());
+
+        $component
+            ->assertSet('planRunId', $run->id)
+            ->assertSet('depotId', $yatala->id);
+    }
+
+    public function test_an_operator_cannot_generate_a_plan(): void
+    {
+        $yatala = Depot::factory()->create([
+            'code' => 'YAT',
+            'name' => 'Yatala',
+            'is_planning_enabled' => true,
+        ]);
+        $operator = User::factory()->withAppRoles(AppRole::DepotOperator)->create();
+        $operator->depots()->attach($yatala);
+
+        Livewire::actingAs($operator)
+            ->test(ProductionBoard::class)
+            ->assertDontSee('Generate Yatala plan')
+            ->call('generatePlan')
+            ->assertNotified('You can read this plan but not change it.');
+
+        $this->assertSame(0, PlanRun::query()->count());
+    }
+
+    public function test_generate_reports_when_yatala_is_not_set_up_for_planning(): void
+    {
+        Livewire::actingAs($this->planner())
+            ->test(ProductionBoard::class)
+            ->call('generatePlan')
+            ->assertNotified('Yatala is not set up for planning, or you cannot see it.');
+
+        $this->assertSame(0, PlanRun::query()->count());
     }
 
     public function test_the_board_shows_product_mould_fields_instead_of_time(): void

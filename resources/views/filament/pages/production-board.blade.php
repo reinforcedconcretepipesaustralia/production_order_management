@@ -55,6 +55,18 @@
                 </select>
             </label>
         </x-operational-filters>
+
+        @if ($canManage)
+            <div class="mt-3">
+                <x-filament::button
+                    wire:click="generatePlan"
+                    wire:confirm="Generate a new Yatala plan? Draft lines that are not held will be replaced."
+                    icon="heroicon-m-sparkles"
+                >
+                    Generate Yatala plan
+                </x-filament::button>
+            </div>
+        @endif
     </x-filament::section>
 
     @if ($run)
@@ -115,9 +127,10 @@
             @if ($editable)
                 Drag a product row onto another date or shift.
             @endif
-            @unless ($run)
-                Run <code>php artisan plan:generate</code> when the engine should propose the next plan.
-            @endunless
+            Yatala is the pilot plant.
+            @if ($canManage && ! $run)
+                Use Generate Yatala plan to propose the next week.
+            @endif
         </x-slot>
 
         @if ($grid->isEmpty())

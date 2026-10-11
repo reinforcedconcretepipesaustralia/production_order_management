@@ -8,7 +8,10 @@ use App\Models\Depot;
 use App\Models\PlanRun;
 use App\Models\ProductionSchedule;
 use App\Models\Shift;
+use App\Services\Planning\PlanGenerator;
+use App\Services\Planning\PlanRequest;
 use App\Services\Planning\PlanReviewService;
+use App\Services\Planning\SchedulingRuleResolver;
 use App\Services\Rcpa\RcpaViewReadService;
 use App\Services\Scheduling\MouldConstraintService;
 use App\Services\Scheduling\ShiftCapacityCalculator;
@@ -36,6 +39,8 @@ class ProductionBoard extends Page
 
     protected string $view = 'filament.pages.production-board';
 
+    public const PILOT_PLANT_CODE = 'YAT';
+
     public string $fromDate = '';
 
     public string $toDate = '';
@@ -49,6 +54,7 @@ class ProductionBoard extends Page
         $this->fromDate = now()->startOfWeek()->toDateString();
         $this->toDate = now()->endOfWeek()->toDateString();
         $this->planRunId = $this->defaultRunId();
+        $this->depotId = $this->pilotPlant()?->id;
     }
 
     public static function canAccess(): bool
@@ -175,6 +181,57 @@ class ProductionBoard extends Page
         }
 
         Notification::make()->success()->title('Plan approved. Every line is now held.')->send();
+    }
+
+    public function generatePlan(PlanGenerator $generator, SchedulingRuleResolver $rules): void
+    {
+        if (! $this->mayManage()) {
+            return;
+        }
+
+        $plant = $this->pilotPlant();
+
+        if ($plant === null) {
+            Notification::make()
+                ->danger()
+                ->title('Yatala is not set up for planning, or you cannot see it.')
+                ->send();
+
+            return;
+        }
+
+        $from = CarbonImmutable::now()->addDay()->startOfDay();
+        $defaults = $rules->planDefaults();
+
+        try {
+            $run = $generator->generate(new PlanRequest(
+                from: $from,
+                to: $from->addMonths(6),
+                depotIds: [$plant->id],
+                targetMonthsOnHand: $defaults['target_months_on_hand'],
+                minimumRunFraction: $defaults['minimum_run_fraction'],
+                maxRunsPerShift: $defaults['max_runs_per_shift'],
+                includeReplenishment: $defaults['include_replenishment'],
+                generatedBy: auth()->id(),
+            ));
+        } catch (RuntimeException $exception) {
+            Notification::make()->danger()->title($exception->getMessage())->send();
+
+            return;
+        }
+
+        $this->depotId = $plant->id;
+        $this->planRunId = $run->id;
+
+        $lines = (int) ($run->metrics['lines'] ?? 0);
+
+        Notification::make()
+            ->success()
+            ->title("Yatala plan #{$run->id} is ready.")
+            ->body($lines === 0
+                ? 'No lines fitted. Check orders, qualified machines, and the week on the board.'
+                : number_format($lines).' lines proposed. Review the week, then approve.')
+            ->send();
     }
 
     public function discard(PlanReviewService $review): void
@@ -346,6 +403,26 @@ class ProductionBoard extends Page
                     $run->status,
                 ),
             ]);
+    }
+
+    private function pilotPlant(): ?Depot
+    {
+        $plant = Depot::query()
+            ->where('code', self::PILOT_PLANT_CODE)
+            ->where('is_planning_enabled', true)
+            ->first();
+
+        if ($plant === null) {
+            return null;
+        }
+
+        $accessible = $this->accessibleDepotIds();
+
+        if ($accessible !== null && ! in_array($plant->id, $accessible, true)) {
+            return null;
+        }
+
+        return $plant;
     }
 
     private function defaultRunId(): ?int
