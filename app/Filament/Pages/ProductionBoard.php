@@ -12,10 +12,8 @@ use App\Services\Planning\PlanGenerator;
 use App\Services\Planning\PlanRequest;
 use App\Services\Planning\PlanReviewService;
 use App\Services\Planning\SchedulingRuleResolver;
-use App\Services\Rcpa\RcpaViewReadService;
 use App\Services\Scheduling\MouldConstraintService;
 use App\Services\Scheduling\ShiftCapacityCalculator;
-use App\Support\Rcpa\RcpaViewCatalog;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -89,8 +87,6 @@ class ProductionBoard extends Page
                 ->orderBy('id'),
         )->get();
 
-        $reader = new RcpaViewReadService(new RcpaViewCatalog);
-
         return [
             ...$filters,
             'statuses' => $statuses,
@@ -99,11 +95,6 @@ class ProductionBoard extends Page
             'canManage' => $this->canManage(),
             'editable' => $this->canManage() && $run !== null && $run->isDraft(),
             'grid' => $this->buildGrid($schedules, $from, $to),
-            'erpProduction' => $reader->productionDemand(
-                $from->toDateString(),
-                $to->toDateString(),
-            ),
-            'erpSkuMaster' => $reader->skuMaster(),
         ];
     }
 

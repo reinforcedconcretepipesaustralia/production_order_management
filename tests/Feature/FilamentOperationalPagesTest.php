@@ -72,8 +72,9 @@ class FilamentOperationalPagesTest extends TestCase
 
         $this->get(ProductionBoard::getUrl())
             ->assertOk()
-            ->assertSee('ERP production demand')
-            ->assertSee('ERP SKU master')
+            ->assertSee('Schedule')
+            ->assertDontSee('ERP production demand')
+            ->assertDontSee('ERP SKU master')
             ->assertDontSee('RCPA_SQL_PASSWORD');
         $this->get(DemandVsProdPlan::getUrl())
             ->assertOk()
