@@ -12,6 +12,7 @@ use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
+use Filament\Support\Enums\Width;
 use Filament\View\PanelsRenderHook;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
@@ -22,6 +23,7 @@ use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -61,6 +63,7 @@ class AdminPanelProvider extends PanelProvider
                 'Data',
                 'Access',
             ])
+            ->maxContentWidth(Width::Full)
             ->renderHook(
                 PanelsRenderHook::USER_MENU_BEFORE,
                 fn (): View => view('filament.sidebar-toggle'),
