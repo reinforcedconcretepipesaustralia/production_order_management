@@ -84,7 +84,7 @@ class FifoAllocationServiceTest extends TestCase
             ->create([
                 'schedule_date' => '2026-09-18',
                 'planned_quantity' => 4,
-                'status' => 'planned',
+                'status' => 'scheduled',
             ]);
         ProductionSchedule::factory()
             ->for($this->depot)
@@ -92,7 +92,7 @@ class FifoAllocationServiceTest extends TestCase
             ->create([
                 'schedule_date' => '2026-09-21',
                 'planned_quantity' => 20,
-                'status' => 'planned',
+                'status' => 'scheduled',
             ]);
         OrderAllocation::factory()
             ->for($compatibleSchedule, 'productionSchedule')

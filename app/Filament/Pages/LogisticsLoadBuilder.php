@@ -30,7 +30,7 @@ class LogisticsLoadBuilder extends Page
 
     protected static ?string $navigationLabel = 'Load Builder';
 
-    protected static ?int $navigationSort = 30;
+    protected static ?int $navigationSort = 40;
 
     protected string $view = 'filament.pages.logistics-load-builder';
 
@@ -99,7 +99,7 @@ class LogisticsLoadBuilder extends Page
 
         $allocation = OrderAllocation::query()
             ->whereKey($data['allocationId'])
-            ->whereHas('salesOrder', fn (Builder $query) => $query->where('depot_id', $load->depot_id))
+            ->forDepot($load->depot_id)
             ->first();
         abort_unless($allocation instanceof OrderAllocation, 404);
 
@@ -231,17 +231,17 @@ class LogisticsLoadBuilder extends Page
 
         if ($load !== null) {
             $allocations = OrderAllocation::query()
-                ->with(['salesOrder.sku', 'inventory', 'productionSchedule'])
+                ->with(['salesOrder.sku', 'sku', 'inventory', 'productionSchedule'])
                 ->withSum('dispatchItems as loaded_quantity', 'quantity')
                 ->whereIn('status', ['allocated', 'reserved'])
-                ->whereHas('salesOrder', fn (Builder $query) => $query->where('depot_id', $load->depot_id))
+                ->forDepot($load->depot_id)
                 ->orderBy('allocated_at')
                 ->orderBy('id')
                 ->get()
                 ->filter(fn (OrderAllocation $allocation): bool => (int) ($allocation->loaded_quantity ?? 0) < $allocation->quantity)
                 ->values();
 
-            $load->load(['depot', 'items.orderAllocation.salesOrder.sku']);
+            $load->load(['depot', 'items.orderAllocation.salesOrder.sku', 'items.orderAllocation.sku']);
         }
 
         $notificationAttempt = $load?->notificationAttempts()

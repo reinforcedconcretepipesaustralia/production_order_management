@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Exceptions\InvalidOrderAllocationException;
 use Database\Factories\OrderAllocationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -77,5 +78,40 @@ class OrderAllocation extends Model
     public function dispatchItems(): HasMany
     {
         return $this->hasMany(DispatchLoadItem::class);
+    }
+
+    public function resolveDepotId(): ?int
+    {
+        return $this->depot_id ?? $this->salesOrder?->depot_id;
+    }
+
+    public function erpOrderReferenceForDisplay(): string
+    {
+        return (string) ($this->salesOrder?->erp_order_reference ?? $this->erp_order_reference ?? '—');
+    }
+
+    public function skuForDisplay(): ?SkuMaster
+    {
+        if ($this->relationLoaded('sku') && $this->sku !== null) {
+            return $this->sku;
+        }
+
+        if ($this->relationLoaded('salesOrder') && $this->salesOrder?->relationLoaded('sku')) {
+            return $this->salesOrder?->sku;
+        }
+
+        return $this->sku ?? $this->salesOrder?->sku;
+    }
+
+    /**
+     * @param  Builder<OrderAllocation>  $query
+     * @return Builder<OrderAllocation>
+     */
+    public function scopeForDepot(Builder $query, int $depotId): Builder
+    {
+        return $query->where(function (Builder $inner) use ($depotId): void {
+            $inner->where('depot_id', $depotId)
+                ->orWhereHas('salesOrder', fn (Builder $orderQuery) => $orderQuery->where('depot_id', $depotId));
+        });
     }
 }

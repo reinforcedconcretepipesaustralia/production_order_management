@@ -13,7 +13,7 @@ class DispatchNotificationFactory
         DispatchLoad $load,
         DispatchNotificationAttempt $attempt,
     ): DispatchNotification {
-        $load->loadMissing(['depot', 'items.orderAllocation.salesOrder.sku']);
+        $load->loadMissing(['depot', 'items.orderAllocation.salesOrder.sku', 'items.orderAllocation.sku']);
 
         $capacity = (float) $load->capacity_tonnes;
         $weight = (float) $load->current_weight_tonnes;
@@ -40,13 +40,15 @@ class DispatchNotificationFactory
         }
 
         $orderRows = $load->items->map(function ($item): string {
-            $order = $item->orderAllocation->salesOrder;
+            $allocation = $item->orderAllocation;
+            $order = $allocation->salesOrder;
+            $sku = $allocation->skuForDisplay();
 
             return '<tr>'
-                .'<td>'.e($order->erp_order_reference).'</td>'
-                .'<td>'.e($order->customer_name).' ('.e($order->customer_code).')</td>'
-                .'<td>'.e($order->delivery_address).'</td>'
-                .'<td>'.e($order->sku->sku_code).'</td>'
+                .'<td>'.e($allocation->erpOrderReferenceForDisplay()).'</td>'
+                .'<td>'.e($order?->customer_name ?? '—').($order !== null ? ' ('.e($order->customer_code).')' : '').'</td>'
+                .'<td>'.e($order?->delivery_address ?? '—').'</td>'
+                .'<td>'.e($sku?->sku_code ?? '—').'</td>'
                 .'<td style="text-align:right">'.number_format($item->quantity).'</td>'
                 .'</tr>';
         })->implode('');

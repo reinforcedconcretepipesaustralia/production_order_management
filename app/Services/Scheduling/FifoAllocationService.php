@@ -66,7 +66,7 @@ final class FifoAllocationService
                 ], 'quantity')
                 ->whereBelongsTo($depot)
                 ->whereBelongsTo($sku, 'sku')
-                ->whereIn('status', ['draft', 'planned', 'scheduled', 'confirmed'])
+                ->whereIn('status', config('logistics.production_commit_statuses', ['scheduled', 'in_progress']))
                 ->where('planned_quantity', '>', 0)
                 ->orderBy('schedule_date')
                 ->orderBy('planned_start_at')

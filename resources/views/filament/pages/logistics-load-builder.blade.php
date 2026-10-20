@@ -142,8 +142,9 @@
                                 <select wire:model="allocationId" class="fi-select-input rounded-lg border-gray-300 bg-white dark:border-white/10 dark:bg-white/5">
                                     <option value="">Select eligible allocation</option>
                                     @foreach ($allocations as $allocation)
+                                        @php($sku = $allocation->skuForDisplay())
                                         <option value="{{ $allocation->id }}">
-                                            {{ $allocation->salesOrder->erp_order_reference }} · {{ $allocation->salesOrder->sku->sku_code }} · {{ $allocation->quantity - (int) ($allocation->loaded_quantity ?? 0) }} remaining
+                                            {{ $allocation->erpOrderReferenceForDisplay() }} · {{ $sku?->sku_code ?? '—' }} · {{ $allocation->quantity - (int) ($allocation->loaded_quantity ?? 0) }} remaining
                                         </option>
                                     @endforeach
                                 </select>
@@ -178,13 +179,15 @@
                                 </thead>
                                 <tbody class="divide-y divide-gray-100 dark:divide-white/5">
                                     @foreach ($load->items as $item)
+                                        @php($allocation = $item->orderAllocation)
+                                        @php($itemSku = $allocation->skuForDisplay())
                                         <tr wire:key="load-item-{{ $item->id }}">
                                             <td class="px-3 py-3">
-                                                <span class="block font-semibold text-gray-900 dark:text-white">{{ $item->orderAllocation->salesOrder->erp_order_reference }}</span>
-                                                <span class="text-xs text-gray-500">{{ $item->orderAllocation->salesOrder->sku->sku_code }}</span>
+                                                <span class="block font-semibold text-gray-900 dark:text-white">{{ $allocation->erpOrderReferenceForDisplay() }}</span>
+                                                <span class="text-xs text-gray-500">{{ $itemSku?->sku_code ?? '—' }}</span>
                                             </td>
                                             <td class="px-3 py-3 text-xs text-gray-600 dark:text-gray-300">
-                                                Allocation #{{ $item->order_allocation_id }} · {{ $item->orderAllocation->inventory_soh_id ? 'Inventory' : 'Production schedule' }}
+                                                Allocation #{{ $item->order_allocation_id }} · {{ filled($allocation->stock_location) ? 'Prime stock' : ($allocation->production_schedule_id ? 'Production schedule' : 'Inventory') }}
                                             </td>
                                             <td class="px-3 py-3 text-right">{{ number_format($item->quantity) }}</td>
                                             <td class="px-3 py-3 text-right">{{ number_format((float) $item->weight_tonnes, 3) }} t</td>

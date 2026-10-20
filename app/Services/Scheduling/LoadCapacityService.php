@@ -9,6 +9,7 @@ use App\Models\DispatchLoadItem;
 use App\Models\OrderAllocation;
 use App\Models\ProductionSchedule;
 use App\Models\SkuMaster;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -53,6 +54,10 @@ final class LoadCapacityService
             $lockedOrder = $lockedAllocation->salesOrder;
             $sku = $lockedAllocation->sku ?? $lockedOrder?->sku;
             $depotId = $lockedAllocation->depot_id ?? $lockedOrder?->depot_id;
+
+            if ($sku === null) {
+                throw new IneligibleLoadQuantityException('This allocation has no product weight on file.');
+            }
 
             if ($depotId !== $lockedLoad->depot_id) {
                 throw new IneligibleLoadQuantityException('Sales order depot does not match the dispatch load depot.');
@@ -111,6 +116,16 @@ final class LoadCapacityService
             $lockedLoad->current_weight_tonnes = $lockedLoad->items()->sum('weight_tonnes');
             $lockedLoad->save();
         }, 3);
+    }
+
+    public function dispatchReadyQuantity(OrderAllocation $allocation, CarbonInterface $dispatchDate): int
+    {
+        $load = new DispatchLoad([
+            'depot_id' => $allocation->depot_id ?? $allocation->salesOrder?->depot_id,
+            'dispatch_date' => $dispatchDate,
+        ]);
+
+        return $this->eligibleAllocationQuantity($allocation, $load);
     }
 
     private function eligibleAllocationQuantity(OrderAllocation $allocation, DispatchLoad $load): int
