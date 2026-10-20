@@ -27,6 +27,12 @@ Artisan::command('inspire', function () {
 Schedule::command('sync:products')->dailyAt('04:00')->withoutOverlapping();
 Schedule::command('sync:bom')->dailyAt('04:15')->withoutOverlapping();
 
+Schedule::command('logistics:reconcile')
+    ->hourly()
+    ->between('5:00', '18:00')
+    ->timezone('Australia/Melbourne')
+    ->withoutOverlapping();
+
 /*
 |--------------------------------------------------------------------------
 | Delivery reminders
