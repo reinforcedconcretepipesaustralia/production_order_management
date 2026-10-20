@@ -7,6 +7,8 @@ use App\Enums\Capability;
 use App\Filament\Pages\DeliveryReminders;
 use App\Filament\Pages\DemandVsProdPlan;
 use App\Filament\Pages\ErpViews;
+use App\Filament\Pages\LogisticsAvailability;
+use App\Filament\Pages\LogisticsDeliverySchedule;
 use App\Filament\Pages\LogisticsLoadBuilder;
 use App\Filament\Pages\PlanReview;
 use App\Filament\Pages\ProductionActuals;
@@ -20,6 +22,7 @@ use App\Filament\Resources\OeeSettings\OeeSettingResource;
 use App\Filament\Resources\SchedulingRules\SchedulingRuleResource;
 use App\Filament\Resources\Shifts\ShiftResource;
 use App\Filament\Resources\SkuMasters\SkuMasterResource;
+use App\Filament\Resources\TransportCarriers\TransportCarrierResource;
 use App\Models\User;
 use BezhanSalleh\FilamentShield\Facades\FilamentShield;
 use BezhanSalleh\FilamentShield\Support\Utils;
@@ -74,6 +77,10 @@ class ShieldRoleCatalog
             'view' => [Capability::ViewSchedules, Capability::ViewAssets],
             'manage' => Capability::ManageSchedules,
         ],
+        TransportCarrierResource::class => [
+            'view' => [Capability::ViewDispatchLoads, Capability::ViewMasterData],
+            'manage' => Capability::ManageDispatchLoads,
+        ],
     ];
 
     /**
@@ -101,6 +108,14 @@ class ShieldRoleCatalog
         ProductionActuals::class => [
             'capabilities' => [Capability::ViewProductionActuals, Capability::EnterProductionActuals],
             'national' => false,
+        ],
+        LogisticsAvailability::class => [
+            'capabilities' => [Capability::ViewDispatchLoads],
+            'national' => true,
+        ],
+        LogisticsDeliverySchedule::class => [
+            'capabilities' => [Capability::ViewDispatchLoads],
+            'national' => true,
         ],
         LogisticsLoadBuilder::class => [
             'capabilities' => [Capability::ViewDispatchLoads],

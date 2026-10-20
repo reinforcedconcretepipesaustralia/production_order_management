@@ -31,7 +31,7 @@ class DeliveryReminders extends Page implements Tables\Contracts\HasTable
 
     protected static ?string $title = 'Delivery reminders';
 
-    protected static ?int $navigationSort = 25;
+    protected static ?int $navigationSort = 50;
 
     protected string $view = 'filament.pages.delivery-reminders';
 
