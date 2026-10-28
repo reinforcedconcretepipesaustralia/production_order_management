@@ -9,6 +9,7 @@ use App\Filament\Pages\DemandVsProdPlan;
 use App\Filament\Pages\ErpViews;
 use App\Filament\Pages\LogisticsAvailability;
 use App\Filament\Pages\LogisticsDeliverySchedule;
+use App\Filament\Pages\LogisticsDispatchCalendar;
 use App\Filament\Pages\LogisticsLoadBuilder;
 use App\Filament\Pages\PlanReview;
 use App\Filament\Pages\ProductionActuals;
@@ -108,6 +109,10 @@ class ShieldRoleCatalog
         ProductionActuals::class => [
             'capabilities' => [Capability::ViewProductionActuals, Capability::EnterProductionActuals],
             'national' => false,
+        ],
+        LogisticsDispatchCalendar::class => [
+            'capabilities' => [Capability::ViewDispatchLoads, Capability::ViewSchedules],
+            'national' => true,
         ],
         LogisticsAvailability::class => [
             'capabilities' => [Capability::ViewDispatchLoads],

@@ -3,16 +3,19 @@
 namespace App\Filament\Pages;
 
 use App\Enums\Capability;
+use App\Exceptions\IneligibleLoadQuantityException;
+use App\Exceptions\LoadCapacityExceededException;
 use App\Filament\Concerns\HasOperationalFilters;
 use App\Models\DeliverySchedule;
 use App\Models\DeliveryScheduleLine;
 use App\Models\Depot;
+use App\Models\DispatchLoad;
+use App\Models\DispatchLoadItem;
 use App\Models\TransportCarrier;
+use App\Models\TransportCarrierVehicle;
 use App\Services\Logistics\DeliveryScheduleBuilder;
 use App\Services\Logistics\DeliveryScheduleMailService;
-use App\Services\Logistics\FreightEstimateService;
-use App\Services\Logistics\OpenOrderLineReader;
-use App\Services\Sync\OrderSync;
+use App\Services\Logistics\ScheduleLineDispatchService;
 use Carbon\CarbonImmutable;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
@@ -37,10 +40,30 @@ class LogisticsDeliverySchedule extends Page
 
     public string $scheduleDate = '';
 
+    public ?int $dispatchLoadId = null;
+
+    public string $loadReference = '';
+
+    public string $capacityTonnes = '24';
+
     public function mount(): void
     {
-        $this->scheduleDate = now()->addDay()->toDateString();
+        $date = request()->query('date');
+        $this->scheduleDate = is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)
+            ? $date
+            : now()->addDay()->toDateString();
+
+        $depot = request()->query('depot');
+        if (is_numeric($depot)) {
+            $this->depotId = (int) $depot;
+        }
+
         $this->syncOperationalFilterSelection();
+    }
+
+    public function updatedScheduleDate(): void
+    {
+        $this->dispatchLoadId = null;
     }
 
     public static function canAccess(): bool
@@ -79,10 +102,71 @@ class LogisticsDeliverySchedule extends Page
         $recipients = app(DeliveryScheduleMailService::class)->sendToCarriers($schedule);
 
         Notification::make()
-            ->title($recipients === [] ? 'No carrier emails sent' : 'Carrier emails queued')
-            ->body($recipients === [] ? 'Assign carriers with email addresses first.' : implode(', ', $recipients))
+            ->title($recipients === [] ? 'No carrier emails sent' : 'Carrier emails sent')
+            ->body($recipients === []
+                ? 'Confirm the lines, then assign a carrier that has an email address. Pickup carriers are not emailed.'
+                : implode(', ', $recipients))
             ->success()
             ->send();
+    }
+
+    public function sendInternalCopy(): void
+    {
+        $schedule = $this->requireSchedule();
+        abort_unless($this->canManageDepot(Capability::ManageDispatchLoads, $schedule->depot_id), 403);
+
+        $recipients = app(DeliveryScheduleMailService::class)->sendInternalCopy($schedule);
+
+        Notification::make()
+            ->title($recipients === [] ? 'No internal copy sent' : 'Internal schedule sent')
+            ->body($recipients === []
+                ? 'Set LOGISTICS_INTERNAL_SCHEDULE_RECIPIENTS in the environment.'
+                : implode(', ', $recipients))
+            ->success()
+            ->send();
+    }
+
+    public function createScheduleLoad(): void
+    {
+        $depot = $this->requireManageDepot();
+        $data = $this->validate([
+            'loadReference' => ['required', 'string', 'max:80', 'unique:dispatch_loads,load_reference'],
+            'capacityTonnes' => ['required', 'numeric', 'gt:0', 'max:9999999'],
+            'scheduleDate' => ['required', 'date'],
+        ]);
+
+        $load = DispatchLoad::query()->create([
+            'depot_id' => $depot->id,
+            'load_reference' => $data['loadReference'],
+            'dispatch_date' => $data['scheduleDate'],
+            'capacity_tonnes' => $data['capacityTonnes'],
+            'status' => 'planned',
+        ]);
+
+        $this->dispatchLoadId = $load->id;
+        $this->loadReference = '';
+
+        Notification::make()->title('Dispatch load created')->success()->send();
+    }
+
+    public function addLineToLoad(int $lineId, ScheduleLineDispatchService $dispatcher): void
+    {
+        $line = DeliveryScheduleLine::query()->with('schedule')->findOrFail($lineId);
+        abort_unless($this->canManageDepot(Capability::ManageDispatchLoads, $line->schedule->depot_id), 403);
+
+        $load = DispatchLoad::query()->find($this->dispatchLoadId);
+        abort_unless($load instanceof DispatchLoad, 422);
+
+        try {
+            $result = $dispatcher->addToLoad($line, $load);
+            Notification::make()
+                ->title('Line added to load')
+                ->body("Load weight is {$result->loadWeightTonnes} tonnes.")
+                ->success()
+                ->send();
+        } catch (IneligibleLoadQuantityException|LoadCapacityExceededException|\InvalidArgumentException $exception) {
+            Notification::make()->title('Line could not be loaded')->body($exception->getMessage())->danger()->send();
+        }
     }
 
     public function updateLine(int $lineId, string $field, mixed $value): void
@@ -90,15 +174,33 @@ class LogisticsDeliverySchedule extends Page
         $line = DeliveryScheduleLine::query()->with('schedule')->findOrFail($lineId);
         abort_unless($this->canManageDepot(Capability::ManageDispatchLoads, $line->schedule->depot_id), 403);
 
-        if (! in_array($field, ['transport_carrier_id', 'is_confirmed', 'is_delayed', 'notes', 'dispatch_qty'], true)) {
+        if (! in_array($field, [
+            'transport_carrier_id',
+            'transport_carrier_vehicle_id',
+            'is_confirmed',
+            'is_delayed',
+            'delay_reason',
+            'notes',
+            'dispatch_qty',
+        ], true)) {
             return;
         }
 
         if ($field === 'transport_carrier_id') {
-            $line->transport_carrier_id = $value !== '' && $value !== null ? (int) $value : null;
-            $line->transport_carrier_vehicle_id = null;
-            $line->estimated_freight_amount = $this->freightForLine($line);
+            $carrierId = $value !== '' && $value !== null ? (int) $value : null;
+            $line->transport_carrier_id = $carrierId;
+            $carrier = $carrierId === null ? null : TransportCarrier::query()->find($carrierId);
+            $line->transport_carrier_vehicle_id = $carrier?->defaultVehicle()?->id;
             $line->save();
+            app(DeliveryScheduleBuilder::class)->applyLineMetrics($line);
+
+            return;
+        }
+
+        if ($field === 'transport_carrier_vehicle_id') {
+            $line->transport_carrier_vehicle_id = $value !== '' && $value !== null ? (int) $value : null;
+            $line->save();
+            app(DeliveryScheduleBuilder::class)->applyLineMetrics($line);
 
             return;
         }
@@ -106,6 +208,7 @@ class LogisticsDeliverySchedule extends Page
         if ($field === 'dispatch_qty') {
             $line->dispatch_qty = max(0, (int) $value);
             $line->save();
+            app(DeliveryScheduleBuilder::class)->applyLineMetrics($line);
 
             return;
         }
@@ -117,7 +220,7 @@ class LogisticsDeliverySchedule extends Page
             return;
         }
 
-        $line->notes = is_string($value) ? $value : null;
+        $line->{$field} = is_string($value) ? $value : null;
         $line->save();
     }
 
@@ -130,16 +233,31 @@ class LogisticsDeliverySchedule extends Page
 
         return Response::streamDownload(function () use ($schedule): void {
             $handle = fopen('php://output', 'w');
-            fputcsv($handle, ['Line', 'Qty', 'Tonnage', 'Transport', 'Confirmed', 'Notes']);
+            fputcsv($handle, [
+                'SO#', 'Customer', 'Order#', 'Contact', 'Phone', 'Delivery name', 'Suburb', 'Zone',
+                'Pipe', 'Balance', 'SOH', 'Qty', 'Tonnage', 'Delayed', 'Notes', 'Transport', 'Confirmed', 'Est. freight',
+            ]);
 
             foreach ($schedule->lines as $line) {
                 fputcsv($handle, [
-                    $line->erp_line_reference,
+                    $line->erp_order_reference,
+                    $line->customer_name,
+                    $line->customer_order,
+                    $line->contact_name,
+                    $line->phone,
+                    $line->delivery_name,
+                    $line->suburb,
+                    $line->zone_code,
+                    $line->stock_code,
+                    $line->backorder_qty,
+                    $line->prime_soh,
                     $line->dispatch_qty,
                     $line->tonnage,
+                    $line->is_delayed ? ($line->delay_reason ?: 'Yes') : 'No',
+                    $line->notes,
                     $line->transportCarrier?->name,
                     $line->is_confirmed ? 'Yes' : 'No',
-                    $line->notes,
+                    $line->estimated_freight_amount,
                 ]);
             }
 
@@ -157,6 +275,7 @@ class LogisticsDeliverySchedule extends Page
         $schedule = null;
         $lineRows = collect();
         $carriers = TransportCarrier::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'is_pickup']);
+        $vehicles = TransportCarrierVehicle::query()->orderBy('name')->get();
 
         if ($depot instanceof Depot) {
             $schedule = DeliverySchedule::query()
@@ -165,33 +284,28 @@ class LogisticsDeliverySchedule extends Page
                 ->whereDate('schedule_date', $this->scheduleDate)
                 ->first();
 
-            if ($schedule !== null) {
-                $entity = (string) $depot->erp_entity_code;
-                $openByLine = app(OpenOrderLineReader::class)->lines($entity)
-                    ->keyBy(fn (array $line): string => (string) $line['line_unique_id']);
-                $ordersByLine = app(OrderSync::class)->lines()
-                    ->filter(fn (array $line): bool => (int) $line['depot_id'] === $depot->id)
-                    ->keyBy('erp_line_reference');
-
-                $lineRows = $schedule->lines->map(function (DeliveryScheduleLine $line) use ($openByLine, $ordersByLine): array {
-                    $open = $openByLine->get($line->erp_line_reference);
-                    $order = $ordersByLine->get($line->erp_line_reference);
-
-                    return [
-                        'model' => $line,
-                        'customer' => $open['customer_name'] ?? $order['customer_name'] ?? '—',
-                        'suburb' => $open['suburb'] ?? '—',
-                        'reference' => $open['reference_nbr'] ?? $order['erp_order_reference'] ?? '—',
-                    ];
-                });
-            }
+            $lineRows = $schedule?->lines ?? collect();
         }
 
+        $loadedByAllocation = DispatchLoadItem::query()
+            ->whereIn('order_allocation_id', $lineRows->pluck('order_allocation_id')->filter())
+            ->selectRaw('order_allocation_id, sum(quantity) as loaded_qty')
+            ->groupBy('order_allocation_id')
+            ->pluck('loaded_qty', 'order_allocation_id');
+
+        $loads = $depot instanceof Depot
+            ? DispatchLoad::query()
+                ->where('depot_id', $depot->id)
+                ->whereDate('dispatch_date', $this->scheduleDate)
+                ->orderBy('load_reference')
+                ->get()
+            : collect();
+
         $totalsByCarrier = $lineRows
-            ->groupBy(fn (array $row): string => (string) ($row['model']->transport_carrier_id ?? 'unassigned'))
+            ->groupBy(fn (DeliveryScheduleLine $line): string => (string) ($line->transport_carrier_id ?? 'unassigned'))
             ->map(fn ($group): array => [
-                'tonnage' => $group->sum(fn (array $row): float => (float) $row['model']->tonnage),
-                'freight' => $group->sum(fn (array $row): float => (float) ($row['model']->estimated_freight_amount ?? 0)),
+                'tonnage' => (float) $group->sum('tonnage'),
+                'freight' => (float) $group->sum('estimated_freight_amount'),
             ]);
 
         return [
@@ -201,33 +315,16 @@ class LogisticsDeliverySchedule extends Page
             'depot' => $depot,
             'schedule' => $schedule,
             'lineRows' => $lineRows,
+            'loads' => $loads,
+            'loadedByAllocation' => $loadedByAllocation,
             'carriers' => $carriers,
+            'vehicles' => $vehicles,
+            'totalQty' => (int) $lineRows->sum('dispatch_qty'),
+            'totalTonnage' => (float) $lineRows->sum('tonnage'),
             'totalsByCarrier' => $totalsByCarrier,
             'canManage' => $depot instanceof Depot
                 && $this->canManageDepot(Capability::ManageDispatchLoads, $depot),
         ];
-    }
-
-    private function freightForLine(DeliveryScheduleLine $line): ?float
-    {
-        if ($line->transport_carrier_id === null) {
-            return null;
-        }
-
-        $carrier = TransportCarrier::query()->find($line->transport_carrier_id);
-
-        if ($carrier === null) {
-            return null;
-        }
-
-        $estimate = app(FreightEstimateService::class)->estimate(
-            $line->erp_entity_code,
-            '',
-            $carrier,
-            (float) $line->tonnage,
-        );
-
-        return $estimate?->estimatedAmount;
     }
 
     private function selectedDepot(): ?Depot

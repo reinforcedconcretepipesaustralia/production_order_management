@@ -6,6 +6,8 @@ use App\Enums\AppRole;
 use App\Enums\Capability;
 use App\Filament\Pages\DeliveryReminders;
 use App\Filament\Pages\DemandVsProdPlan;
+use App\Filament\Pages\LogisticsDeliverySchedule;
+use App\Filament\Pages\LogisticsDispatchCalendar;
 use App\Filament\Pages\ProductionActuals;
 use App\Filament\Pages\ProductionBoard;
 use App\Filament\Resources\Users\UserResource;
@@ -78,6 +80,14 @@ class FilamentShieldSetupTest extends TestCase
         $this->assertTrue($executive->can(
             app(ShieldRoleCatalog::class)->pagePermissionKey(DeliveryReminders::class),
         ));
+        $this->assertTrue($planner->can(
+            app(ShieldRoleCatalog::class)->pagePermissionKey(LogisticsDeliverySchedule::class),
+        ));
+        $this->assertTrue($executive->can(
+            app(ShieldRoleCatalog::class)->pagePermissionKey(LogisticsDispatchCalendar::class),
+        ));
+        $this->assertTrue($planner->can('ViewAny:TransportCarrier'));
+        $this->assertFalse($planner->can('Create:TransportCarrier'));
 
         $operator = User::factory()->withAppRoles(AppRole::DepotOperator)->create();
         $this->assertTrue($operator->can(
