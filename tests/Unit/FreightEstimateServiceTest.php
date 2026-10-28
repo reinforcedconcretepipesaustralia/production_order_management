@@ -58,4 +58,50 @@ class FreightEstimateServiceTest extends TestCase
         $this->assertNotNull($estimate);
         $this->assertSame(0.0, $estimate->estimatedAmount);
     }
+
+    public function test_no_freight_zone_is_zero_without_a_rate(): void
+    {
+        $carrier = TransportCarrier::factory()->create();
+
+        $estimate = app(FreightEstimateService::class)->estimate(
+            'RCPQLD',
+            'ZZZNOFREIGH',
+            $carrier,
+            8,
+        );
+
+        $this->assertNotNull($estimate);
+        $this->assertSame(0.0, $estimate->estimatedAmount);
+    }
+
+    public function test_applies_rigid_minimum_billable_tonnes(): void
+    {
+        $carrier = TransportCarrier::factory()->create();
+        $vehicle = TransportCarrierVehicle::query()->create([
+            'transport_carrier_id' => $carrier->id,
+            'name' => 'Rigid',
+            'vehicle_kind' => 'rigid',
+            'capacity_tonnes' => 12,
+            'minimum_billable_tonnes' => 10,
+            'is_default' => true,
+        ]);
+        TransportCarrierZoneRate::query()->create([
+            'erp_entity_code' => 'RCPQLD',
+            'transport_carrier_id' => $carrier->id,
+            'zone_code' => 'TODLZ4',
+            'rate_per_tonne' => 10,
+        ]);
+
+        $estimate = app(FreightEstimateService::class)->estimate(
+            'RCPQLD',
+            'TODLZ4',
+            $carrier,
+            8,
+            $vehicle,
+        );
+
+        $this->assertNotNull($estimate);
+        $this->assertSame(10.0, $estimate->billableTonnes);
+        $this->assertSame(100.0, $estimate->estimatedAmount);
+    }
 }

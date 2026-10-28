@@ -14,6 +14,11 @@ return [
 
     'schedule_horizon_days' => 14,
 
+    /*
+    | Carrier emails include only confirmed lines. The internal copy still includes every line.
+    */
+    'require_confirmed_for_carrier_email' => true,
+
     'default_minimum_billable_tonnes' => [
         'semi' => 20,
         'rigid' => 10,

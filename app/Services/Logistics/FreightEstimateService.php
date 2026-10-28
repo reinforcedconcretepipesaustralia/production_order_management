@@ -24,6 +24,10 @@ final class FreightEstimateService
             return null;
         }
 
+        if (strcasecmp($zoneCode, 'ZZZNOFREIGH') === 0) {
+            return new FreightEstimate($actualTonnes, $actualTonnes, 0, null, 0);
+        }
+
         $rate = TransportCarrierZoneRate::query()
             ->where('erp_entity_code', $erpEntityCode)
             ->where('transport_carrier_id', $carrier->id)

@@ -9,6 +9,8 @@ class DeliveryScheduleLine extends Model
 {
     protected $fillable = [
         'delivery_schedule_id', 'erp_entity_code', 'erp_line_reference', 'order_allocation_id',
+        'erp_order_reference', 'customer_name', 'contact_name', 'phone', 'delivery_name',
+        'suburb', 'zone_code', 'customer_order', 'stock_code', 'backorder_qty', 'prime_soh',
         'transport_carrier_id', 'transport_carrier_vehicle_id', 'dispatch_qty', 'tonnage',
         'estimated_freight_amount', 'is_confirmed', 'is_delayed', 'delay_reason', 'notes', 'sort_order',
     ];

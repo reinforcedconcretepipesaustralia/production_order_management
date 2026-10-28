@@ -11,13 +11,17 @@ use App\Models\TransportCarrier;
 use App\Services\Scheduling\LoadCapacityService;
 use App\Services\Scheduling\LogisticsReconcileService;
 use App\Services\Sync\OrderSync;
+use App\Services\Sync\StockSync;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 
 final class DeliveryScheduleBuilder
 {
     public function __construct(
         private LogisticsReconcileService $reconcile,
         private OrderSync $orders,
+        private OpenOrderLineReader $openOrders,
+        private StockSync $stock,
         private LoadCapacityService $loads,
         private FreightEstimateService $freight,
     ) {}
@@ -49,6 +53,11 @@ final class DeliveryScheduleBuilder
             fn (DeliveryScheduleLine $line): string => $line->erp_entity_code.'|'.$line->erp_line_reference,
         );
 
+        $openByLine = $this->openOrders->lines((string) $depot->erp_entity_code)
+            ->keyBy(fn (array $line): string => (string) $line['line_unique_id']);
+
+        $primeBySku = $this->stock->forDepot($depot);
+
         $eligibleOrders = $this->orders->lines()
             ->filter(fn (array $line): bool => (int) $line['depot_id'] === $depot->id
                 && $line['requested_delivery_date'] === $scheduleDate->toDateString())
@@ -70,31 +79,32 @@ final class DeliveryScheduleBuilder
 
             $key = $order['erp_entity_code'].'|'.$order['erp_line_reference'];
             $seenKeys[$key] = true;
-            $tonnage = $this->tonnageForLine((int) $order['sku_master_id'], $dispatchQty);
-
-            $attributes = [
-                'dispatch_qty' => $dispatchQty,
-                'tonnage' => $tonnage,
-                'sort_order' => $sort++,
-                'order_allocation_id' => $this->primaryAllocationId($depot, $order),
-            ];
+            $presentation = $this->presentation($order, $openByLine, $primeBySku);
 
             if ($existing->has($key)) {
                 /** @var DeliveryScheduleLine $line */
                 $line = $existing[$key];
-                $line->fill($attributes);
-                $line->estimated_freight_amount = $this->estimatedFreight($line, $order, $tonnage);
+                $line->fill([
+                    ...$presentation,
+                    'sort_order' => $sort++,
+                    'order_allocation_id' => $this->primaryAllocationId($depot, $order),
+                ]);
                 $line->save();
+                $this->applyLineMetrics($line);
 
                 continue;
             }
 
-            DeliveryScheduleLine::query()->create([
+            $line = DeliveryScheduleLine::query()->create([
                 'delivery_schedule_id' => $schedule->id,
                 'erp_entity_code' => $order['erp_entity_code'],
                 'erp_line_reference' => $order['erp_line_reference'],
-                ...$attributes,
+                'dispatch_qty' => $dispatchQty,
+                'sort_order' => $sort++,
+                'order_allocation_id' => $this->primaryAllocationId($depot, $order),
+                ...$presentation,
             ]);
+            $this->applyLineMetrics($line);
         }
 
         $schedule->lines()
@@ -110,6 +120,50 @@ final class DeliveryScheduleBuilder
             });
 
         return $schedule->fresh(['lines']);
+    }
+
+    public function applyLineMetrics(DeliveryScheduleLine $line): void
+    {
+        $line->loadMissing(['orderAllocation.sku', 'transportCarrier', 'transportCarrierVehicle']);
+
+        $sku = $line->orderAllocation?->sku;
+
+        if ($sku === null && filled($line->stock_code)) {
+            $sku = SkuMaster::query()
+                ->where('erp_entity_code', $line->erp_entity_code)
+                ->where('sku_code', $line->stock_code)
+                ->first();
+        }
+
+        $line->tonnage = round((float) ($sku?->unit_weight_tonnes ?? 0) * (int) $line->dispatch_qty, 4);
+        $line->estimated_freight_amount = $this->freightAmount($line);
+        $line->save();
+    }
+
+    /**
+     * @param  array<string, mixed>  $order
+     * @param  Collection<string, array<string, mixed>>  $openByLine
+     * @param  Collection<int, array{prime: int, rework: int}>  $primeBySku
+     * @return array<string, mixed>
+     */
+    private function presentation(array $order, $openByLine, $primeBySku): array
+    {
+        $open = $openByLine->get((string) $order['erp_line_reference']);
+        $prime = $primeBySku->get((int) $order['sku_master_id']);
+
+        return [
+            'erp_order_reference' => $open['reference_nbr'] ?? $order['erp_order_reference'] ?? null,
+            'customer_name' => $open['customer_name'] ?? $order['customer_name'] ?? null,
+            'contact_name' => $open['contact_name'] ?? null,
+            'phone' => $open['phone'] ?? null,
+            'delivery_name' => $open['project_name'] ?? null,
+            'suburb' => $open['suburb'] ?? null,
+            'zone_code' => $open['zone_code'] ?? null,
+            'customer_order' => $open['customer_order'] ?? null,
+            'stock_code' => $open['stock_code'] ?? null,
+            'backorder_qty' => (int) round((float) ($open['backorder_qty'] ?? $order['ordered_quantity'] ?? 0)),
+            'prime_soh' => (int) ($prime['prime'] ?? 0),
+        ];
     }
 
     /**
@@ -139,35 +193,23 @@ final class DeliveryScheduleBuilder
             ->value('id');
     }
 
-    private function tonnageForLine(int $skuMasterId, int $quantity): float
-    {
-        $weight = SkuMaster::query()->whereKey($skuMasterId)->value('unit_weight_tonnes');
-
-        return round((float) $weight * $quantity, 4);
-    }
-
-    /**
-     * @param  array<string, mixed>  $order
-     */
-    private function estimatedFreight(DeliveryScheduleLine $line, array $order, float $tonnage): ?float
+    private function freightAmount(DeliveryScheduleLine $line): ?float
     {
         if ($line->transport_carrier_id === null) {
             return null;
         }
 
-        $carrier = TransportCarrier::query()->find($line->transport_carrier_id);
+        $carrier = $line->transportCarrier ?? TransportCarrier::query()->find($line->transport_carrier_id);
 
         if ($carrier === null) {
             return null;
         }
 
-        $zone = '';
-
         $estimate = $this->freight->estimate(
-            (string) $order['erp_entity_code'],
-            $zone,
+            $line->erp_entity_code,
+            (string) ($line->zone_code ?? ''),
             $carrier,
-            $tonnage,
+            (float) $line->tonnage,
             $line->transportCarrierVehicle,
         );
 

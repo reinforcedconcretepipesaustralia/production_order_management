@@ -165,6 +165,9 @@ class FakeTenciaSource extends TenciaSource
             $table->string('SUBURB')->nullable();
             $table->string('STATE')->nullable();
             $table->string('POSTCODE')->nullable();
+            $table->string('PHONE_NBR')->nullable();
+            $table->string('CUSTOMER_ORDER')->nullable();
+            $table->string('DELIVERY_ZONE')->nullable();
         });
 
         foreach (['RCPVIC', 'RCPNSW', 'RCPQLD', 'RCPSA'] as $entity) {
@@ -302,12 +305,18 @@ class FakeTenciaSource extends TenciaSource
             'CONTACT_NAME' => $attributes['CONTACT_NAME'] ?? null,
             'PROJECT_NAME' => $attributes['PROJECT_NAME'] ?? null,
             'REFERENCE_DUPLICATE' => (int) ($attributes['REFERENCE_DUPLICATE'] ?? 0),
+            'PHONE_NBR' => $attributes['PHONE_NBR'] ?? null,
+            'CUSTOMER_ORDER' => $attributes['CUSTOMER_ORDER'] ?? null,
+            'DELIVERY_ZONE' => $attributes['DELIVERY_ZONE'] ?? null,
         ];
         unset(
             $attributes['EMAIL_ADDRESS'],
             $attributes['CONTACT_NAME'],
             $attributes['PROJECT_NAME'],
             $attributes['REFERENCE_DUPLICATE'],
+            $attributes['PHONE_NBR'],
+            $attributes['CUSTOMER_ORDER'],
+            $attributes['DELIVERY_ZONE'],
         );
 
         if (Schema::hasTable('vwSALES_ORDERS')) {
@@ -336,6 +345,9 @@ class FakeTenciaSource extends TenciaSource
                 'SUBURB' => $attributes['SUBURB'] ?? null,
                 'STATE' => $attributes['STATE'] ?? null,
                 'POSTCODE' => $attributes['POSTCODE'] ?? null,
+                'PHONE_NBR' => $openOrderOnly['PHONE_NBR'],
+                'CUSTOMER_ORDER' => $openOrderOnly['CUSTOMER_ORDER'],
+                'DELIVERY_ZONE' => $openOrderOnly['DELIVERY_ZONE'],
             ]);
         }
 
